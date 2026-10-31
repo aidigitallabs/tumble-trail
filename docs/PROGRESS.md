@@ -454,7 +454,7 @@ terminal speed). Fastest points: the level 4 descent (Tiny 5.4, Big kid 6.8 m/s)
   driven from `App.onSimFinished` / the `celebrating` state.
 - Phase 3 merge: `levelList.ts` drops `levelTest` from the game when other levels exist; if the other
   agent changes the registry's shape the only coupling is `playableLevels(levels)` in `App.ts`.
-- The tier defaults are all Tiny; Nick may prefer ball 2 / 3 to start as Big kid.
+- The tier defaults are all Tiny; Anna may prefer ball 2 / 3 to start as Big kid.
 
 **Plan inconsistencies found (plan not changed)**
 

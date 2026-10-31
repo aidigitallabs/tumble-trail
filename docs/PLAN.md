@@ -2,10 +2,10 @@
 
 **Date:** 31 Oct 2026
 **Status:** v2 — revised after two adversarial reviews (technical + toddler-UX). Changelog in §19.
-**Author:** Claude (with Nick)
+**Author:** Claude (with Anna)
 **Audience:** Sonnet-class coding agents executing the build, one phase per session.
 **Working name:** *Tumble Trail*. Nothing in the code depends on the name except `src/config/brand.ts`.
-**Repo:** `aidigitallabs/tumble-trail` (pre-created by Nick, public, Pages source = "GitHub Actions"). Agents clone it; they never create repos.
+**Repo:** `aidigitallabs/tumble-trail` (pre-created by Anna, public, Pages source = "GitHub Actions"). Agents clone it; they never create repos.
 
 ---
 
@@ -364,7 +364,7 @@ Autopilot: `driving = true`; `steer = clamp(−lateral / (width/4), −1, 1)` + 
 - `ci.yml` on push/PR: `npm ci`, `lint`, `typecheck`, `test:unit`, `build`, `npx playwright install --with-deps chromium`, `test:e2e`.
 - `pages.yml` on push to `main` after CI: build with `VITE_BASE=/tumble-trail/`, upload artifact, deploy. Needs `permissions: { pages: write, id-token: write, contents: read }`.
 
-### Human checklist — `docs/IPAD_CHECKLIST.md` (Phase 6, Nick)
+### Human checklist — `docs/IPAD_CHECKLIST.md` (Phase 6, Anna)
 Install to home screen; full-screen launch; offline launch after one online run; FPS (parent menu) ≥ 55 on the oldest iPad; no pinch-zoom / loupe / selection; audio after first tap; rotation mid-level OK; backgrounding and returning doesn't leave the ball driving; parent gate can't be triggered one-handed; **child protocol**: three separate sessions, adult silent and not touching, child starts from the title and reaches the finish of level 1 within 3 min and asks to play again; one Big-kid session with a 5–8-year-old recording falls per level.
 
 ---
@@ -385,7 +385,7 @@ Install to home screen; full-screen launch; offline launch after one online run;
 
 ## 15. Guardrails (non-negotiable)
 1. **No ads, purchases, currencies, timed/gated rewards, analytics, telemetry, third-party scripts, outbound links, or runtime network calls** beyond loading the app and the SW update check.
-2. **No copying** of any existing game's name, logo, levels, sounds or art known to the agent. Do not mention other games in code, UI, commits or docs. Name originality is Nick's responsibility.
+2. **No copying** of any existing game's name, logo, levels, sounds or art known to the agent. Do not mention other games in code, UI, commits or docs. Name originality is Anna's responsibility.
 3. **No external assets at runtime.**
 4. **No text required to play.**
 5. **No failure states, no counters that go down, no timed auto-advance** — in either tier.
@@ -441,7 +441,7 @@ One agent session per phase; one squash commit per phase pushed to `main`. Order
 **Done when**: [agent] 6 levels validated and autopilot-green in both tiers in CI; finish times recorded in PROGRESS.
 
 ### Phase 3b — Tuning pass **[human, does not block]**
-Nick plays all levels on the oldest iPad in both tiers, with the 3-year-old on Tiny; adjusts `tuning.ts`; records before/after and child observations per level in PROGRESS.
+Anna plays all levels on the oldest iPad in both tiers, with the 3-year-old on Tiny; adjusts `tuning.ts`; records before/after and child observations per level in PROGRESS.
 
 ### Phase 4 — Screens, flow, persistence
 **Tasks**: `Screens.ts` (all screens in §8, 160 px targets, inline SVG), parent gate, parent card, state machine incl. celebrating/finished, ball-character profiles, `Persistence.ts`, wake lock, resume, SW update-on-title, FPS readout, low-graphics toggle, idle hand hint. E2E #4 and #5.
@@ -454,7 +454,7 @@ Nick plays all levels on the oldest iPad in both tiers, with the 3-year-old on T
 **Done when**: [agent] every event in §10 has a sound; no audio errors before the first gesture; `stats()` within budget during celebration (fastForward through a finish with effects enabled); e2e green. [human] audio works after the first tap on an iPad.
 
 ### Phase 6 — iPad hardening and v1.0 **[mostly human]**
-**Tasks**: Nick runs `docs/IPAD_CHECKLIST.md` on the oldest and newest iPads; the agent fixes everything found (one session per round); README finalised; tag `v1.0.0`.
+**Tasks**: Anna runs `docs/IPAD_CHECKLIST.md` on the oldest and newest iPads; the agent fixes everything found (one session per round); README finalised; tag `v1.0.0`.
 
 **Done when**: [human] checklist ticked incl. the child protocol; [agent] `v1.0.0` tagged and deployed.
 

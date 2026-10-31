@@ -1,4 +1,4 @@
-# iPad checklist (Phase 6, run by Nick)
+# iPad checklist (Phase 6, run by Anna)
 
 Run on the oldest and the newest iPad you have. Tick each item; note the iPad model and iOS
 version at the top of each run.
