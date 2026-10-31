@@ -1,11 +1,17 @@
+import { readFileSync } from 'node:fs';
 import { defineConfig } from 'vitest/config';
 import { VitePWA } from 'vite-plugin-pwa';
 
 // GitHub Pages serves the project under /tumble-trail/; pages.yml sets VITE_BASE for that.
 const base = process.env.VITE_BASE ?? '/';
+// The parent menu shows the version from package.json as plain text.
+const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as {
+  version: string;
+};
 
 export default defineConfig({
   base,
+  define: { __APP_VERSION__: JSON.stringify(pkg.version) },
   build: {
     target: 'es2022',
     sourcemap: false,

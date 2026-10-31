@@ -5,7 +5,7 @@ const LOCKOUT_WAIT_MS = 900;
 
 async function loadAs(page: Page, tier: 'tiny' | 'bigkid'): Promise<void> {
   await page.goto('/');
-  await page.waitForFunction(() => window.__tt?.state === 'playing', undefined, {
+  await page.waitForFunction(() => window.__tt?.state === 'title', undefined, {
     timeout: 30_000,
   });
   await page.evaluate(async (t) => {

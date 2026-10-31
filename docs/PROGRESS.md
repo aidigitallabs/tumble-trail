@@ -398,3 +398,69 @@ terminal speed). Fastest points: the level 4 descent (Tiny 5.4, Big kid 6.8 m/s)
 - Section 6 says the brake makes the ball "hold on ramps"; it takes the parking rule to actually do so.
 - Section 13 e2e #2 (`celebrating`) vs Phase 3's `finished`: kept `finished`, as in earlier phases.
 - Section 13 e2e #2/#3 do not provide a way to count respawns; `__tt` has no counter.
+## 31 Oct 2026 — Phase 4: screens, flow, persistence, parent gate
+
+**Done**
+
+- `Screens.ts` (all screens in PLAN section 8, inline SVG icons, 160 px play targets / 88 px parent
+  targets from `tuning.ui`, `touch-action: manipulation` on overlay buttons, safe-area insets):
+  Title (three ball-character buttons, highlighted choice recolours the backdrop ball at once, huge
+  play, grid icon; backdrop = first playable level on the autopilot, no HUD), Level select (glyph +
+  palette colour tiles, stars earned, next tile pulses; Tiny all open, Big kid sequential with greyed
+  locked tiles), Playing (no interactive element; Big kid stars-so-far top centre; idle hand hint at
+  level start and after 4 s / 8 s), Celebrating (3 s, input ignored, CSS confetti placeholder),
+  Finished (stars light up one by one, huge next, back arrow, no auto-advance, bigger celebration and
+  restart at level 1 after the last level), Parent menu (resume / home, per-ball tier, sound flag, low
+  graphics + reload, drag-to-confirm reset, Guided Access text, FPS, version, no links), Parent card
+  (first launch, dismissible, reachable from the menu).
+- Parent gate (`ParentGate.ts` + window capture listeners in `Screens.ts`): two corners, 3 s, 120 px,
+  fill rings; works from every state after boot; gate pointers never reach `Input`.
+- State machine in `App.ts` driven by the pure table in `flow.ts`; next level unlocked on the finish
+  event; `parentMenu` pauses physics; SW update applied only on the title (`updateGate.ts`).
+- `Persistence.ts` (`tt.v1`, versioned, try/catch, in-memory fallback, never overwrites a newer
+  version), per-ball profiles, resume at the title with play at `currentLevel`.
+- Wake lock during play, FPS readout, low-graphics toggle (dpr 1, no MSAA, reload), version string.
+- `__tt`: `state` is the real machine; `loadLevel` still bypasses title / celebration; `fastForward`
+  with `until: 'finished'` and `'celebrating'` both work; new `levelId()`.
+- Unit tests: 206 -> 263 (persistence, flow, parent gate, level list, update gate, wake lock, UI
+  tuning). E2E: 9 -> 24 (persistence, first-launch card, target sizes, full run over the whole
+  registry, celebration lockout and no auto-advance, level select / Big kid unlock, resume, hint and
+  no interactive elements in play, single click / 1 s press anywhere during play, real two-finger gate
+  holds, menu controls incl. tier switch then `loadLevel` changing `trackWidth()`, reset slider, low
+  graphics). Existing specs only changed their boot wait (`title`) and call `loadLevel` where needed.
+- Checks (in the worktree): `lint`, `typecheck`, `test:unit` (263/263), `build`, `test:e2e` (24/24,
+  about 2.4 min) all green.
+
+**Skipped and why**
+
+- Real confetti, fanfare, star-tick sounds, sound on/off effect: Phase 5 (the CSS burst and the `muted`
+  flag are placeholders).
+- Service-worker update path is unit tested (`UpdateGate`) but not e2e tested: a preview build has no
+  second version to find.
+
+**PENDING HUMAN**
+
+- PENDING HUMAN: on an iPad, check the parent gate (two thumbs in opposite corners for 3 s) cannot be
+  triggered one-handed, rings are visible, and that Guided Access + the parent card text read well.
+- PENDING HUMAN: check the title / level-select / finished layouts on the real iPad sizes in both
+  orientations (checked here only at 1024x768; the title switches to a row layout under 640 px height).
+- PENDING HUMAN: wake lock really keeps the screen on in the home-screen app (iOS may need a user
+  gesture; failures are silently ignored).
+
+**Look at next**
+
+- Phase 5 hooks: `Screens` buttons have no sound yet; `App.setMuted` stores `muted`; the celebration is
+  driven from `App.onSimFinished` / the `celebrating` state.
+- Phase 3 merge: `levelList.ts` drops `levelTest` from the game when other levels exist; if the other
+  agent changes the registry's shape the only coupling is `playableLevels(levels)` in `App.ts`.
+- The tier defaults are all Tiny; Nick may prefer ball 2 / 3 to start as Big kid.
+
+**Plan inconsistencies found (plan not changed)**
+
+- Section 8 says the Level select "Tiny: all open ... locked tiles are not rendered in Tiny", which is
+  vacuous (nothing is locked in Tiny); implemented as "never drawn".
+- Section 13 test 5 says "a single 1 s press does nothing (state unchanged)"; the Phase 4 done-when says
+  state stays `playing`. Same thing, tested both for a mouse press and a single-touch corner press.
+- Section 8's wake lock "during play" and iOS's user-gesture rule can conflict; ignored on failure.
+- Section 16 Phase 4 lists "title -> ball -> level 1": the ball choice is a highlight on the title, not
+  a separate step, so a run is title -> play.

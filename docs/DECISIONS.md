@@ -306,3 +306,68 @@ measured in the current frame's right) / (width / 4)`; both constants are in `tu
   edit this session), so `levels.spec.ts` fast-forwards in 0.25 s slices inside one `evaluate`
   and counts a respawn whenever the ball moves more than 4 m in a slice (top speed is 7 m/s). The
   exact respawn count is asserted in the unit tests (`GameWorld.respawnCount`).
+## 31 Oct 2026 — Phase 4 decisions
+
+- **New files** (not in PLAN section 4): `flow.ts` (pure state-machine transition table, unit tested),
+  `ParentGate.ts` (DOM-free two-corner hold logic), `levelList.ts`, `icons.ts` (inline SVG),
+  `updateGate.ts` (service-worker update held until the title), `wakeLock.ts`, `src/screens.css`,
+  `src/globals.d.ts` (`__APP_VERSION__`). No new dependency.
+- **Which levels are "the game".** `levelList.ts` takes the registry and drops `levelTest` unless it is the
+  only entry. Level select, title play, next, "final level" and the backdrop all use that list, so the
+  registry may be 1 level (now) or `levelTest` + 6 (after Phase 3) with no code change. `loadLevel(id)`
+  still accepts any registry id; finishing `levelTest` through it records nothing when it is not in the
+  list. The backdrop is the first playable level, Tiny, autopilot, no HUD; it restarts when it finishes.
+- **State machine.** `App.dispatch(event)` is the only way state changes (it replaces `setState`). Every
+  change calls `Input.lock()` (500 ms) and re-renders the screens. `parentMenu` keeps the state it
+  overlays in `flow.under`; Resume returns there, Home goes to the title. While `parentMenu` is up the
+  fixed-step loop is not advanced (physics paused) and the celebration timer is frozen with it
+  (the countdown only runs while `state === 'celebrating'`).
+- **Test hooks keep working.** `loadLevel(id)` dispatches `forcePlay` (any state, also closes the parent
+  menu). `fastForward` only steps while `state === 'playing'`; `until: 'celebrating'` stops there;
+  `until: 'finished'` additionally skips the 3 s celebration (otherwise `finished` could never be
+  reached synchronously). `__tt.setTier` is a sticky override that beats the ball's saved tier until the
+  parent menu changes the tier; it never writes the save. New read-only `__tt.levelId()`.
+- **Celebrating / Finished.** The 3 s celebration is a countdown of rendered-frame time (not the physics
+  step). Buttons ignore presses until the screen's 500 ms lockout is over (`data-ready="true"` on the
+  screen root; e2e waits for it), and they act on `click`, which needs the pointerdown to have landed on
+  the button itself: a finger already down when Finished appears cannot press next. No auto-advance
+  anywhere.
+- **Progress rules.** Stars per run = checkpoints passed + 1 (always the maximum on a finish, since
+  falls are never counted); best is kept. Finishing level i sets `unlocked = max(unlocked, i + 2)` and
+  `currentLevel = i + 1` (wrapping to 0 after the last), on the finish event itself. Starting a level
+  also stores it as `currentLevel`, so a killed app resumes there. Title play for a Big kid ball is
+  clamped to the highest unlocked level. Reset keeps the ball's tier.
+- **Defaults.** All three balls default to Tiny (simplest toddler-safe option); a parent switches a
+  ball to Big kid in the menu. Level select's "next" tile (pulse) is the first open level with no stars.
+  Tiny never draws locked tiles; since Tiny has everything open, that means none.
+- **Tier switch in the parent menu** changes the ball's saved tier at once. If a level is paused under the
+  menu, Resume restarts that level with the new tier (a half-played level cannot change its width).
+  Otherwise it applies on the next level start.
+- **Parent gate.** Window-level capture listeners on `pointerdown/move/up/cancel`. A pointer that starts
+  within 120 px (Euclidean) of the top-left or bottom-right corner belongs to the gate; when it was aimed
+  at the canvas, `stopImmediatePropagation()` keeps it away from `Input` (so a corner touch never steers
+  or drives). Pointers aimed at overlay buttons are only observed, so those buttons still work. Leaving
+  the corner, lifting either finger, a resize or blur resets the hold; a fresh pointerdown is needed
+  after it fires. The hold is timed with frame `dt` (capped at 0.25 s), so a very slow frame rate
+  lengthens it. Rings are drawn 12 px in from each corner. No persistent corner marker is shown.
+- **Gate testing uses real touches.** The e2e opens the gate with two simultaneous touches through the
+  DevTools protocol (`Input.dispatchTouchEvent` in a `hasTouch` context); this works in headless
+  Chromium, so no `__tt.parentGate` hook exists.
+- **First-launch parent card** appears over the title until OK is pressed (`parentCardSeen`), and is
+  reachable from the menu ("Setup help"). It is a sub-view: `state` stays `title` / `parentMenu`.
+- **Parent menu text** is English plain text (parents read it; children never need to). Version comes
+  from package.json via a Vite `define` (`__APP_VERSION__`), shown as `vX.Y.Z`, no links anywhere.
+  FPS is `stats().fps` refreshed every 500 ms while the menu is open.
+- **Low graphics** persists, then `location.reload()`; the renderer is built with `antialias: false` and
+  dpr capped at 1.0 when the flag is set. Sound toggle stores `muted` only (Phase 5 reads it).
+- **Wake lock** is requested on `playing` (and while the menu is open over it), released otherwise, and
+  re-requested on `visibilitychange`; every failure is ignored.
+- **SW update**: `registerSW({ onNeedRefresh })` hands `updateSW(true)` to `UpdateGate`, which runs it
+  once and only when `state === 'title'` (immediately if already there). Not covered by e2e (the preview
+  build has no second version to find); covered by a unit test of the gate.
+- **Idle hint**: shown at level start (idle counter starts at the delay) and again after 4 s (Tiny) /
+  8 s (Big kid) with no pointer down; hidden while a pointer is down and during autopilot runs.
+- **Celebration visuals are a CSS placeholder** (star pop + 36 / 80 CSS confetti pieces from a
+  golden-angle fan, no `Math.random`). Phase 5 replaces them with `Effects.ts`.
+- **Existing e2e specs** now wait for `title` at boot (they used to wait for `playing`) and call
+  `loadLevel('levelTest')` where they need a level; assertions are otherwise unchanged.
