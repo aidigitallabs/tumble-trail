@@ -379,3 +379,75 @@ measured in the current frame's right) / (width / 4)`; both constants are in `tu
   golden-angle fan, no `Math.random`). Phase 5 replaces them with `Effects.ts`.
 - **Existing e2e specs** now wait for `title` at boot (they used to wait for `playing`) and call
   `loadLevel('levelTest')` where they need a level; assertions are otherwise unchanged.
+
+## 31 Oct 2026 — Phase 5 decisions
+
+- **New files** (not in PLAN section 4): `src/app/motion.ts` (the live `prefers-reduced-motion` flag),
+  `tests/unit/fakeAudio.ts` (a recording Web Audio shim), `tests/unit/audio.test.ts`,
+  `tests/unit/effects.test.ts`, `tests/e2e/audio.spec.ts`, `tests/e2e/effects.spec.ts`. No new
+  dependency. Tunables are in `tuning.audio` and `tuning.effects` (plus two exported note types).
+- **Audio is event-driven from the render step.** `App.physicsStep` only moves `GameWorld.drainEvents()`
+  into a queue (capped at 64); `renderFrame` plays them. `fastForward` drains and discards, so it makes
+  no sound and spawns no effects, and `resetFx()` after it syncs the respawn counter so a fast-forwarded
+  respawn gets no boop or glow. The title / level-select backdrop is silent (its pops still burst).
+- **Context lifecycle.** The `AudioContext` is not created at all until the first `pointerup` (window
+  capture listener), so nothing can warn or throw before a gesture. `unlock()` retries `resume()` on
+  every `pointerup` while not `running` / `closed` (covers iOS `interrupted`), `visibilitychange` ->
+  hidden suspends, -> visible retries; every `resume` / `suspend` rejection is swallowed.
+  `webkitAudioContext` is used as a fallback. `play()` is a no-op unless the context is `running` and
+  not muted, so nothing queues up on a suspended clock and fires in a burst on resume.
+- **Mute** is the persisted `muted` flag: master gain 0 (time constant 30 ms, no click), and while muted
+  nothing is scheduled at all. Not muted: master gain 10^(-6/20) = 0.501.
+- **Graph.** oscillator -> low-pass (2.6 kHz, hard cap 3 kHz) -> gain envelope -> SFX bus -> master. The
+  envelope is `0 -> peak (attack >= 10 ms) -> hold -> 0 (release >= 60 ms)` with linear ramps; the code
+  clamps to the floors and `tuning` already satisfies them (a unit test checks both). Waveforms are
+  sine / triangle only (no noise anywhere, including the whoosh, which is a slow sine glide). SFX peak
+  is 0.6 before the master. Rolling hum: triangle 70-120 Hz (rises with speed) -> 500 Hz low-pass ->
+  speed gain (ratio x sfxPeak x 10^(-18/20), i.e. -18 dB under the loudest note) -> duck gain -> master.
+  The duck drops it to 0.25 for the length of any SFX plus 0.1 s, extended (not cut short) by overlaps.
+- **Which sound where.** contact: pentatonic blip cycling C5 D5 E5 G5 A5 by a counter (no randomness);
+  pop: downward-sweep pop plus rising blip; checkpoint: G5 then C6; respawn: 330 -> 494 Hz glide at the
+  respawn teleport (the midpoint of the 300 ms sequence, when the ball reappears); celebration: C E G C
+  triangle arpeggio plus a 180 -> 700 Hz sine whoosh, played when the render loop first sees
+  `celebrating`; star ticks: one per star on the audio clock, `ui.starStepMs` apart, starting when
+  `finished` is first seen (they line up with the CSS star animation delay); button click: a soft
+  triangle blip on every accepted press (`ScreensHost.buttonPressed`, after the 500 ms lockout check,
+  so a press that is ignored is silent). The rolling hum plays only in `playing` (not the backdrop, not
+  under the parent menu, not during a respawn), with speed ratio = ground speed / tier `maxSpeed`.
+- **Confetti is 3D now.** The Celebrating screen's CSS burst is gone (only the big star pops in the
+  DOM); the Finished screen keeps its small CSS burst (`ui.confettiPieces`, hidden by reduced motion
+  already), because the 3D confetti has mostly fallen by then (about 3 s of life) and the star
+  count-up needs a little sparkle. 220 pieces (300 on the final level) in 3 waves 0.25 s apart, from
+  the ball, palette-coloured plus the balloon colours, tumbling with drag so they flutter. Looked at in
+  a headless screenshot: visible around the big star, some rise out of frame (the camera is behind).
+- **Pool and draw calls.** All particles (confetti, pop bursts, sparkles) share one `InstancedMesh` of
+  360 quads (one draw call, opaque, quads shrink away instead of blending); the respawn glow is one more
+  plane. A pool that is full simply drops the spawn (counted in `particles.dropped`; a test shows the
+  biggest celebration plus two bursts and a sparkle fits). Pop burst 9 quads, checkpoint sparkle 12
+  camera-facing diamonds rising around the ball (not at the arch, which is 7.5 m up, out of the child's
+  eye line).
+- **Respawn vignette** is a soft radial-alpha glow plane (generated `DataTexture`, no asset) at the
+  ball, billboarded, peak opacity 0.6, rising 0.12 s and fading 0.5 s, started when the ball reappears.
+  It never covers the screen.
+- **Landing squash** acts on the DRAWN matrix only: `Ball.squash` (world axes, 1.15 / 0.85 / 1.15) is
+  composed as T * S_world * R * uniform and the centre drops so the bottom keeps its floor contact; the
+  plain `group.position / quaternion / scale` that the camera, shadow and interpolation read are
+  untouched, and `matrixAutoUpdate` is only switched off while a squash is active. Detection is the
+  ball's velocity along the TRACK's up (so rolling down a ramp is not a landing): it was below
+  -1.5 m/s on the previous frame and is above -0.5 m/s now. Full squash on impact, relaxing linearly
+  over 120 ms (PLAN says "for 120 ms"; holding at full for 120 ms looked like a stall, so it relaxes).
+- **Reduced motion** (`motion.ts`, live via the media query's change event): follow camera smoothing x2
+  (existing `tuning.camera.reducedMotionSmoothing`, now updated live), no confetti, no landing squash.
+  Pop bursts and checkpoint sparkles stay (tiny, brief, and the only feedback for the event); the
+  checkpoint flag spin and CSS animations were already handled. `LevelView` reads the flag when a level
+  is built.
+- **`__tt` additions:** `audio()` -> `{ state: 'none' | 'running' | 'suspended' | 'interrupted' |
+'closed', muted }` (as asked; `'none'` = no context yet) and `effects()` -> `{ particles,
+reducedMotion }` (not asked for; the stats-during-celebration and reduced-motion e2e tests need to
+  see the effects). Both are read-only.
+- **Headless audio works.** Chromium headless with SwiftShader created a context and it reached
+  `running` after one `mouse.click`, so the e2e asserts `running` outright (no fallback needed). The
+  output is not audible-verified there; sound quality needs the PENDING HUMAN iPad check.
+- **E2E budget check** runs levelTest (Tiny) and level06 (both tiers) through `fastForward(180,
+'celebrating')`, waits for particles, samples five times and asserts tris <= 40 000, draws <= 40 and
+  particles <= 360 (measured: 12 draws, 12.8k-17.5k tris, 220-300 particles).

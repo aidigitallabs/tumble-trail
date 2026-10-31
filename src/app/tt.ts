@@ -1,4 +1,5 @@
 import type { Tier } from '../levels/schema';
+import type { AudioState } from '../game/Audio';
 
 /** Debug/test contract (PLAN section 4). `window.__tt` is always present. */
 export type TTState =
@@ -8,6 +9,19 @@ export interface TTStats {
   triangles: number;
   drawCalls: number;
   fps: number;
+}
+
+/** Read-only audio status for tests: 'none' until the first gesture has created the context. */
+export interface TTAudio {
+  state: AudioState;
+  muted: boolean;
+}
+
+/** Read-only effects status for tests. */
+export interface TTEffects {
+  /** Live particle quads. */
+  particles: number;
+  reducedMotion: boolean;
 }
 
 export interface TT {
@@ -41,6 +55,10 @@ export interface TT {
     t: number;
     lateral: number;
   };
+  /** Audio context state and the mute flag (Phase 5). */
+  audio(): TTAudio;
+  /** Live effect particles and the reduced-motion flag (Phase 5). */
+  effects(): TTEffects;
   /** The renderer's GPU string (Phase 0 smoke test: proves WebGL is real, not a stub). */
   app: { rendererString: string | null };
 }
@@ -65,6 +83,8 @@ export interface TTHost {
   balloons(): { total: number; popped: number };
   obstacles(): Record<'bump' | 'pillar' | 'gate' | 'balloon', number>;
   ballState(): ReturnType<TT['ball']>;
+  audioStatus(): TTAudio;
+  effectsStatus(): TTEffects;
 }
 
 /** Placeholder installed before the app is constructed (state 'boot'). */
@@ -84,6 +104,8 @@ export function bootTT(): TT {
     balloons: () => ({ total: 0, popped: 0 }),
     obstacles: () => ({ bump: 0, pillar: 0, gate: 0, balloon: 0 }),
     ball: () => ({ pos: [0, 0, 0], vel: [0, 0, 0], t: 0, lateral: 0 }),
+    audio: () => ({ state: 'none', muted: false }),
+    effects: () => ({ particles: 0, reducedMotion: false }),
     app: { rendererString: null },
   };
 }
@@ -109,6 +131,8 @@ export function createTT(host: TTHost): TT {
     balloons: () => host.balloons(),
     obstacles: () => host.obstacles(),
     ball: () => host.ballState(),
+    audio: () => host.audioStatus(),
+    effects: () => host.effectsStatus(),
     app: { rendererString: host.rendererString },
   };
 }
