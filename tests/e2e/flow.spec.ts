@@ -7,6 +7,7 @@ import {
   storedSave,
   waitForState,
   waitReady,
+  waitInputReady,
 } from './helpers';
 
 test('persistence: pick ball 2, reload, ball 2 is still selected', async ({ page }) => {
@@ -216,7 +217,7 @@ test('playing shows a sweeping hand hint until the first touch, and nothing is i
   await expect(page.getByTestId('hint')).toHaveClass(/visible/);
   expect(await page.locator('#ui button:visible').count()).toBe(0);
   expect(await page.locator('#ui [tabindex], #ui a, #ui input').count()).toBe(0);
-  await page.waitForTimeout(700); // past the input lockout
+  await waitInputReady(page);
   await page.mouse.move(500, 400);
   await page.mouse.down();
   await expect(page.getByTestId('hint')).not.toHaveClass(/visible/);
@@ -229,7 +230,7 @@ test('a single click or 1 s press anywhere during play leaves the state at playi
   await bootToTitle(page);
   await press(page, 'screen-title', 'play');
   await waitForState(page, 'playing');
-  await page.waitForTimeout(700);
+  await waitInputReady(page);
   const spots = [
     [512, 384],
     [100, 100],

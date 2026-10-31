@@ -50,6 +50,13 @@ export async function waitReady(page: Page, testId: string): Promise<void> {
   });
 }
 
+/** The canvas input lockout (game time) is over: a pointer on the canvas now counts. */
+export async function waitInputReady(page: Page): Promise<void> {
+  await page.waitForFunction(() => window.__tt?.inputLocked() === false, undefined, {
+    timeout: 10_000,
+  });
+}
+
 /** Wait for a screen's lockout, then click one of its buttons. */
 export async function press(page: Page, screen: string, button: string): Promise<void> {
   await waitReady(page, screen);

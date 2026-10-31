@@ -249,6 +249,10 @@ export class App implements TTHost, ScreensHost {
     return counts;
   }
 
+  inputLocked(): boolean {
+    return this.input.locked;
+  }
+
   trackWidth(): number {
     return this.sim?.width ?? tuning.tiers[this.tier].width;
   }

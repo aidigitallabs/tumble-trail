@@ -9,6 +9,7 @@ import {
   touchCorners,
   waitForState,
   waitReady,
+  waitInputReady,
 } from './helpers';
 
 // The gate needs two simultaneous touches: real touch events via CDP (a touch-enabled context).
@@ -20,7 +21,7 @@ test('parent gate: two corners held opens the menu and pauses the game; one corn
   await bootToTitle(page);
   await press(page, 'screen-title', 'play');
   await waitForState(page, 'playing');
-  await page.waitForTimeout(700);
+  await waitInputReady(page);
 
   // 1.5 s with both corners: not enough.
   let lift = await touchCorners(page, bothCorners(page));
@@ -38,13 +39,13 @@ test('parent gate: two corners held opens the menu and pauses the game; one corn
   await openParentMenu(page);
   expect(await page.evaluate(() => window.__tt.state)).toBe('parentMenu');
   const t0 = await page.evaluate(() => window.__tt.ball().t);
-  await page.waitForTimeout(700);
+  await waitInputReady(page);
   expect(await page.evaluate(() => window.__tt.ball().t)).toBe(t0);
 
   // Resume continues the same level.
   await press(page, 'parent-menu', 'parent-resume');
   await waitForState(page, 'playing');
-  await page.waitForTimeout(700);
+  await waitInputReady(page);
   expect(await page.evaluate(() => window.__tt.ball().t)).toBeGreaterThan(t0);
 });
 
@@ -54,7 +55,7 @@ test('parent gate: a finger in a corner zone never steers or drives (Big kid hol
   await bootToTitle(page, { tier: 'bigkid' });
   await press(page, 'screen-title', 'play');
   await waitForState(page, 'playing');
-  await page.waitForTimeout(700);
+  await waitInputReady(page);
   const t0 = await page.evaluate(() => window.__tt.ball().t);
   // (80, 80) is 113 px from the corner: inside the gate zone but past the 40 px edge rejection,
   // so without the gate this touch would drive the ball.

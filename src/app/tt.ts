@@ -59,6 +59,12 @@ export interface TT {
   audio(): TTAudio;
   /** Live effect particles and the reduced-motion flag (Phase 5). */
   effects(): TTEffects;
+  /**
+   * True while the post-transition input lockout is still running. The lockout counts game time
+   * (render `dt`, clamped), so on a slow machine it can outlast its nominal milliseconds; tests
+   * must poll this instead of sleeping.
+   */
+  inputLocked(): boolean;
   /** The renderer's GPU string (Phase 0 smoke test: proves WebGL is real, not a stub). */
   app: { rendererString: string | null };
 }
@@ -84,6 +90,7 @@ export interface TTHost {
   obstacles(): Record<'bump' | 'pillar' | 'gate' | 'balloon', number>;
   ballState(): ReturnType<TT['ball']>;
   audioStatus(): TTAudio;
+  inputLocked(): boolean;
   effectsStatus(): TTEffects;
 }
 
@@ -106,6 +113,7 @@ export function bootTT(): TT {
     ball: () => ({ pos: [0, 0, 0], vel: [0, 0, 0], t: 0, lateral: 0 }),
     audio: () => ({ state: 'none', muted: false }),
     effects: () => ({ particles: 0, reducedMotion: false }),
+    inputLocked: () => true,
     app: { rendererString: null },
   };
 }
@@ -132,6 +140,7 @@ export function createTT(host: TTHost): TT {
     obstacles: () => host.obstacles(),
     ball: () => host.ballState(),
     audio: () => host.audioStatus(),
+    inputLocked: () => host.inputLocked(),
     effects: () => host.effectsStatus(),
     app: { rendererString: host.rendererString },
   };
