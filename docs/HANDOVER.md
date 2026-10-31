@@ -2,40 +2,25 @@
 
 **Status:** Phases 0–4 built, merged and tested (plus Phase 5 if `PROGRESS.md` has a Phase 5 entry). Not yet on a real iPad.
 
-## Try it now
+## Play it
 
-A private preview build is published as a Claude artifact (open it on the iPad in Safari; it runs
-full-screen after "Add to Home Screen" but the service worker / offline mode will only work once it
-is served from its own origin on GitHub Pages):
+The game is live at https://aidigitallabs.github.io/tumble-trail/
 
-```
-https://claude.ai/artifact/XDEnQWtyGZZZCnVwFBnywj
-```
+On each iPad:
+
+1. Open that address in **Safari**.
+2. Tap **Share**, then **Add to Home Screen**, then **Add**.
+3. Launch it from the new home-screen icon. It runs full screen and works offline after the
+   first launch.
+
+Progress lives in the home-screen app's own storage (deleting the app wipes it).
 
 First launch shows the parent card (Guided Access + Add to Home Screen). Parent menu: hold the
 **top-left and bottom-right corners together for 3 s**.
 
 ## Where the code is
 
-The game is a standalone project at `games/tumble-trail/` inside `cc-ops` on branch
-`ccr-c90fa07a-a1hn6q`, because `aidigitallabs/tumble-trail` did not exist during the build.
-Its `.github/workflows/` (CI + Pages deploy) only run once it is its own repo.
-
-### Move it to its own repo (5 minutes)
-
-1. Create `aidigitallabs/tumble-trail` on GitHub: **public, empty** (no README).
-   Settings → Pages → Source: **GitHub Actions**.
-2. From a clone of cc-ops on the branch:
-
-```
-git subtree split --prefix=games/tumble-trail -b tumble-trail-main
-git push git@github.com:aidigitallabs/tumble-trail.git tumble-trail-main:main
-```
-
-3. CI runs on `main`, then Pages deploys to `https://aidigitallabs.github.io/tumble-trail/`.
-4. Open that URL on each iPad → Share → Add to Home Screen. Progress lives in the home-screen
-   app's own storage (a reinstall wipes it).
-5. Delete the `.github/workflows` copies from cc-ops only if you also delete `games/`.
+https://github.com/aidigitallabs/tumble-trail — pushes to `main` run CI and redeploy Pages.
 
 ## What was verified by the agents (headless, no real iPad)
 

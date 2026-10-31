@@ -10,7 +10,7 @@ The full specification is in [`docs/PLAN.md`](docs/PLAN.md). Build progress is i
 
 ## Install on an iPad
 
-1. Open the game's web address in **Safari**.
+1. Open https://aidigitallabs.github.io/tumble-trail/ in **Safari**.
 2. Tap **Share**, then **Add to Home Screen**, then **Add**.
 3. Launch it from the new home-screen icon. It runs full screen and works offline after the
    first launch.

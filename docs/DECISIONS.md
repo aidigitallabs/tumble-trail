@@ -11,6 +11,13 @@ standalone project (own package.json, own `.github/workflows/`) so it can be mov
 workflows in `.github/workflows/` do not run (they are not at the cc-ops root) and the Pages
 URL does not exist. Agents run the same checks locally instead.
 
+## 31 Oct 2026 — Moved to its own repo
+
+The project moved to `aidigitallabs/tumble-trail` on 31 Oct 2026 with its history
+(`git subtree split`). CI and the GitHub Pages deploy are live: pushes to `main` run
+`pages.yml` (CI, then build with `VITE_BASE=/tumble-trail/`, then deploy) and the game is served
+at https://aidigitallabs.github.io/tumble-trail/. The copy under `cc-ops/games/tumble-trail` is removed.
+
 ## 31 Oct 2026 — Playwright
 
 The build environment has Playwright 1.63.0 and Chromium 1243 preinstalled under
