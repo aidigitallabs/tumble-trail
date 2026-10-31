@@ -95,3 +95,61 @@ set, otherwise the bundled browser is used.
   `tuning` (a value): a type-only cycle, no runtime cycle. Gameplay constants from PLAN section 6
   that are not in the per-tier table (ball body, input, respawn, stuck detection) are in `tuning`
   already so Phase 1b adds no magic numbers.
+
+## 31 Oct 2026 — Phase 1b decisions
+
+- **`GameWorld.ts` added (not in the PLAN section 4 file list).** The determinism test and
+  `fastForward` need the whole simulation (Rapier world, colliders, ball, `Progress`, checkpoints,
+  finish, respawn, autopilot) without a renderer, DOM or clock. `GameWorld` owns exactly that and
+  `App` owns the renderer, scene, input, camera and state machine. `Ball.ts` still holds the body,
+  mesh, shadow and `applyControls` as specified; `Autopilot.ts` is a pure function called from
+  `GameWorld.step`. No new dependency.
+- **`buildColliders(world, geoms)` keeps the two-argument signature**; the catch plane's height comes
+  from the floor geometry's bounding box (every floor strip is horizontal across the track, so its
+  lowest vertex is the lowest frame). It is a large fixed cuboid whose top face is 10 m below that;
+  a ball within `tuning.physics.catchPlaneHitM` (1 m) of it counts as a catch-plane fall. In practice
+  the `fallDepth` (6 m) check fires first; the plane is the last resort.
+- **`TriMeshFlags.FIX_INTERNAL_EDGES` is value 144 in this Rapier version**, i.e. it already includes
+  MERGE_DUPLICATE_VERTICES (our geometry is non-indexed, so indices are 0..n-1 and Rapier merges the
+  shared vertices). Used as-is.
+- **Control forces are applied as impulses `F * dt` each step** (`applyImpulse`), not `addForce`, so
+  nothing persists between steps and no `resetForces` bookkeeping is needed. Linear damping is set
+  every step (0.2 driving, `brakeDamping` otherwise). Bodies are created with `setCanSleep(false)` so
+  the stuck timer and control forces never meet a sleeping body.
+- **Start spawn**: the first start places the ball at arc `tuning.physics.startArcM = 1 m` (frame 2)
+  `+ up x 1 m`, not on frame 0, because the 3 m start-pad disc is a Phase 2 task and the floor's
+  edge would otherwise sit under the ball's centre. Checkpoint respawns use the checkpoint frame
+  exactly as PLAN section 6 says.
+- **Respawn is counted in physics steps** (300 ms = 18 steps at 60 Hz), never from a clock. Detecting
+  the fall starts the sequence on the same step: scale-out over the first half, teleport at the
+  midpoint (position, zero velocities, identity rotation, `Progress.reseed`), scale-in over the
+  second half. Physics is not stepped and input is ignored throughout. `GameWorld.respawnCount`
+  increments at the teleport and `App` hard-snaps the camera when it changes. No vignette in 1b
+  (Phase 5).
+- **`Input` is split into a DOM-free core and `attach()`**, so its rules are unit tested. Time-based
+  behaviour (still-finger decay, 500 ms lockout, keyboard ramp) advances in `Input.update(dt)`, called
+  once per rendered frame with the real frame time; the physics step only reads `Input.controls`, so
+  the step never reads a clock. Steer is exactly PLAN section 6 (plain `clamp(dx / range)` outside a
+  40 px dead zone, so it steps from 0 to about 0.24 at the dead-zone edge; not rescaled).
+  Keyboard (dev only): arrows / A D steer, Up / W / Space drive in hold mode.
+- **Lockout on every state change**: `App.setState` calls `Input.lock()` (releases the pointer, 500 ms
+  lockout), so a finger already down at load or finish never counts; a fresh pointerdown is needed.
+- **Camera smooths the heading as specified and also the `trackRise` term** with the same rate, so
+  the camera does not step vertically when the frame `cameraBack` metres behind changes on a ramp
+  crest. Position is otherwise rigid to the (interpolated) ball.
+- **Autopilot look-ahead term** = `lookAheadGain (0.5) * (sideways offset of the frame 4 m ahead,
+measured in the current frame's right) / (width / 4)`; both constants are in `tuning.autopilot`.
+  Obstacle repulsion arrives with obstacles in Phase 2.
+- **`__tt`** is built by `createTT(host)` (accessors over `App`), after `RAPIER.init()`; before that
+  `window.__tt` is a `bootTT()` stub with `state: 'boot'`. `state` is read-only through `__tt`.
+  `app.rendererString` is kept from Phase 0 (the smoke test uses it instead of
+  `app.renderer.getContext()`). `fastForward` returns early when `until` is reached or the level is
+  finished; when `until` equals the current state it returns `{ state, seconds: 0 }`.
+- **`tuning.smoke` (the Phase 0 demo scene constants) is deleted** with the demo scene; new blocks
+  `physics`, `camera`, `render`, `ballVisual`, `autopilot` and the collider materials under `track`
+  hold every new number. The one remaining literal is the catch plane's 0.5 m thickness (geometry,
+  not a tunable).
+- **Boot goes straight into `levelTest`** (default tier Tiny) and `state` goes `boot -> playing`. The
+  Phase 0 smoke test now waits for `playing` instead of `title` and asserts the ball makes progress
+  along the track instead of coming to rest on a plane (the plane no longer exists); everything else
+  in it is unchanged.

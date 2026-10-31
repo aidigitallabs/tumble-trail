@@ -2,17 +2,11 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import { registerSW } from 'virtual:pwa-register';
 import './style.css';
 import { App } from './app/App';
+import { bootTT, createTT } from './app/tt';
 import { installTouchGuards } from './app/touchGuards';
-import type { TT } from './app/tt';
 
 // Boot: the loading screen (already in index.html) stays up while the WASM initialises.
-const tt: TT = {
-  state: 'boot',
-  stats: () => ({ triangles: 0, drawCalls: 0, fps: 0 }),
-  app: { rendererString: null },
-  ball: () => ({ pos: [0, 0, 0], vel: [0, 0, 0], t: 0, lateral: 0 }),
-};
-window.__tt = tt;
+window.__tt = bootTT();
 
 async function boot(): Promise<void> {
   const canvas = document.getElementById('game') as HTMLCanvasElement;
@@ -21,17 +15,12 @@ async function boot(): Promise<void> {
 
   await RAPIER.init();
   const app = new App(canvas);
+  window.__tt = createTT(app);
 
-  tt.stats = () => app.stats();
-  tt.app = { rendererString: app.rendererString };
-  tt.ball = () => {
-    const b = app.ballState();
-    return { pos: b.pos, vel: b.vel, t: 0, lateral: 0 };
-  };
-
+  // Phase 1b: straight into the test course (title and level select arrive in Phase 4).
+  await app.loadLevel('levelTest');
   app.start();
   loading?.classList.add('hidden');
-  tt.state = 'title';
 }
 
 // Never register the service worker in dev. Updates are applied only on the title screen from

@@ -1,3 +1,4 @@
+import RAPIER from '@dimforge/rapier3d-compat';
 import { BufferGeometry, Color, Float32BufferAttribute, Vector3 } from 'three';
 import { palettes } from '../config/brand';
 import { tuning } from '../config/tuning';
@@ -234,4 +235,60 @@ export function buildRibbonGeometry(
     floor: buildFloor(frames, width, colors),
     walls: buildWalls(frames, width, wallMode, noWallSpansM, options, colors),
   };
+}
+
+export interface TrackColliders {
+  floor: RAPIER.Collider;
+  walls: RAPIER.Collider;
+  catchPlane: RAPIER.Collider;
+  /** World Y of the top surface of the catch plane (10 m below the lowest frame). */
+  catchY: number;
+}
+
+/** A fixed trimesh collider from a non-indexed triangle soup (indices are simply 0..n-1). */
+function trimeshDesc(geometry: BufferGeometry): RAPIER.ColliderDesc {
+  const position = geometry.getAttribute('position');
+  const vertices = new Float32Array(position.array as ArrayLike<number>);
+  const indices = new Uint32Array(position.count);
+  for (let i = 0; i < indices.length; i++) indices[i] = i;
+  return RAPIER.ColliderDesc.trimesh(vertices, indices, RAPIER.TriMeshFlags.FIX_INTERNAL_EDGES);
+}
+
+/**
+ * Fixed colliders for a track (PLAN section 5): one trimesh for the floor (friction 0.8) and one
+ * for the walls (friction 0, restitution 0.3), both with `FIX_INTERNAL_EDGES`, plus a large flat
+ * catch plane `tuning.respawn.catchPlaneDepthM` below the lowest floor vertex as a last resort.
+ *
+ * The geometries are non-indexed (vertices are merged by Rapier's flag). The floor's lowest
+ * vertex is the lowest frame, because every floor strip is horizontal across the track.
+ */
+export function buildColliders(world: RAPIER.World, geoms: RibbonGeometry): TrackColliders {
+  const floor = world.createCollider(
+    trimeshDesc(geoms.floor)
+      .setFriction(tuning.track.floorFriction)
+      .setRestitution(tuning.track.floorRestitution),
+  );
+  const walls = world.createCollider(
+    trimeshDesc(geoms.walls)
+      .setFriction(tuning.track.wallFriction)
+      .setRestitution(tuning.track.wallRestitution),
+  );
+
+  geoms.floor.computeBoundingBox();
+  const box = geoms.floor.boundingBox as NonNullable<BufferGeometry['boundingBox']>;
+  const catchY = box.min.y - tuning.respawn.catchPlaneDepthM;
+  const m = tuning.physics.catchPlaneMarginM;
+  const halfX = (box.max.x - box.min.x) / 2 + m;
+  const halfZ = (box.max.z - box.min.z) / 2 + m;
+  const thickness = 0.5;
+  const catchPlane = world.createCollider(
+    RAPIER.ColliderDesc.cuboid(halfX, thickness / 2, halfZ)
+      .setTranslation(
+        (box.max.x + box.min.x) / 2,
+        catchY - thickness / 2,
+        (box.max.z + box.min.z) / 2,
+      )
+      .setFriction(tuning.track.floorFriction),
+  );
+  return { floor, walls, catchPlane, catchY };
 }

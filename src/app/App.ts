@@ -1,30 +1,45 @@
 import * as THREE from 'three';
-import RAPIER from '@dimforge/rapier3d-compat';
+import { palettes } from '../config/brand';
 import { pickPixelRatio, tuning } from '../config/tuning';
-import type { TTStats } from './tt';
+import { FollowCamera } from '../game/Camera';
+import { GameWorld } from '../game/GameWorld';
+import { getLevel } from '../levels';
+import type { Tier } from '../levels/schema';
+import { GameLoop } from './GameLoop';
+import { Input } from './Input';
+import type { TT, TTHost, TTState, TTStats } from './tt';
 
 /**
- * Phase 0 smoke scene: a two-tone sphere drops onto a plane under Rapier physics, rendered by
- * three.js. It proves WASM + WebGL work in the browser and in headless CI. Replaced in Phase 1b.
+ * Renderer, scene, state machine and the glue between input, the simulation (`GameWorld`), the
+ * fixed-step loop and the follow camera. Phase 1b: boots straight into a level; screens arrive in
+ * Phase 4.
  */
-export class App {
+export class App implements TTHost {
   readonly renderer: THREE.WebGLRenderer;
   readonly rendererString: string | null;
+  state: TTState = 'boot';
+
   private readonly scene = new THREE.Scene();
-  private readonly camera: THREE.PerspectiveCamera;
-  private readonly world: RAPIER.World;
-  private readonly body: RAPIER.RigidBody;
-  private readonly ballMesh: THREE.Mesh;
-  private accumulator = 0;
+  private readonly followCam: FollowCamera;
+  private readonly input = new Input();
+  private readonly loop: GameLoop;
+  private readonly levelGroup = new THREE.Group();
+  private readonly materials: THREE.Material[] = [];
+  private readonly fog = new THREE.Fog(0xffffff, tuning.render.fogNear, tuning.render.fogFar);
+
+  private tier: Tier = 'tiny';
+  private pendingTier: Tier = 'tiny';
+  private _autopilot = false;
+  private sim: GameWorld | null = null;
+  private lastRespawnCount = 0;
+  private started = false;
   private lastTime = 0;
   private fps = 0;
   private fpsFrames = 0;
   private fpsSince = 0;
 
   constructor(private readonly canvas: HTMLCanvasElement) {
-    const s = tuning.smoke;
     const isTouch = navigator.maxTouchPoints > 0;
-
     this.renderer = new THREE.WebGLRenderer({
       canvas,
       antialias: true,
@@ -37,110 +52,194 @@ export class App {
     this.rendererString =
       String(gl.getParameter(dbg ? dbg.UNMASKED_RENDERER_WEBGL : gl.RENDERER) ?? '') || null;
 
-    // Palette-ish colours; real palettes arrive in Phase 2 (brand.ts).
-    const sky = new THREE.Color('#bfe6ff');
-    this.scene.background = sky;
-    this.scene.fog = new THREE.Fog(sky, 18, 45);
-    this.scene.add(new THREE.HemisphereLight('#ffffff', '#a8d5a2', 1.6));
-    const sun = new THREE.DirectionalLight('#ffffff', 1.4);
-    sun.position.set(4, 8, 3);
+    const r = tuning.render;
+    this.scene.fog = this.fog;
+    this.scene.add(new THREE.HemisphereLight(0xffffff, r.hemisphereGround, r.hemisphereIntensity));
+    const sun = new THREE.DirectionalLight(0xffffff, r.sunIntensity);
+    sun.position.set(r.sunPosition[0], r.sunPosition[1], r.sunPosition[2]);
     this.scene.add(sun);
+    this.scene.add(this.levelGroup);
 
-    // Ground plane.
-    const ground = new THREE.Mesh(
-      new THREE.BoxGeometry(s.planeHalfSize * 2, s.planeThickness, s.planeHalfSize * 2),
-      new THREE.MeshLambertMaterial({ color: '#8fd694' }),
-    );
-    ground.position.y = -s.planeThickness / 2;
-    this.scene.add(ground);
+    this.followCam = new FollowCamera(tuning.tiers[this.tier]);
+    const motion = window.matchMedia?.('(prefers-reduced-motion: reduce)');
+    this.followCam.setReducedMotion(motion?.matches ?? false);
 
-    // Two-tone (quartered) ball, coloured per triangle so the quarters have crisp edges.
-    const sphere = new THREE.SphereGeometry(s.ballRadius, 24, 16).toNonIndexed();
-    const pos = sphere.getAttribute('position');
-    const colors = new Float32Array(pos.count * 3);
-    const a = new THREE.Color('#e5484d');
-    const b = new THREE.Color('#ffffff');
-    for (let i = 0; i < pos.count; i += 3) {
-      const cx = (pos.getX(i) + pos.getX(i + 1) + pos.getX(i + 2)) / 3;
-      const cz = (pos.getZ(i) + pos.getZ(i + 1) + pos.getZ(i + 2)) / 3;
-      const c = cx > 0 !== cz > 0 ? a : b;
-      for (let k = 0; k < 3; k++) c.toArray(colors, (i + k) * 3);
-    }
-    sphere.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-    this.ballMesh = new THREE.Mesh(sphere, new THREE.MeshLambertMaterial({ vertexColors: true }));
-    this.scene.add(this.ballMesh);
-
-    this.camera = new THREE.PerspectiveCamera(s.verticalFov, 1, 0.1, 100);
-    this.camera.position.set(0, s.cameraUp, s.cameraBack);
-    this.camera.lookAt(0, s.cameraLookAtY, 0);
-
-    // Physics.
-    this.world = new RAPIER.World({ x: 0, y: s.gravity, z: 0 });
-    this.world.timestep = 1 / tuning.physicsHz;
-    this.world.createCollider(
-      RAPIER.ColliderDesc.cuboid(s.planeHalfSize, s.planeThickness / 2, s.planeHalfSize)
-        .setTranslation(0, -s.planeThickness / 2, 0)
-        .setFriction(0.8),
-    );
-    this.body = this.world.createRigidBody(
-      RAPIER.RigidBodyDesc.dynamic()
-        .setTranslation(0, s.ballStartHeight, 0)
-        .setCcdEnabled(true)
-        .setAngularDamping(0.1),
-    );
-    this.world.createCollider(
-      RAPIER.ColliderDesc.ball(s.ballRadius)
-        .setMass(1)
-        .setFriction(0.8)
-        .setRestitution(s.ballRestitution),
-      this.body,
-    );
-    this.syncMesh();
+    this.loop = new GameLoop(() => this.physicsStep());
+    this.input.attach(canvas);
 
     this.resize();
     new ResizeObserver(() => this.resize()).observe(document.documentElement);
     window.visualViewport?.addEventListener('resize', () => this.resize());
+    document.addEventListener('visibilitychange', () => {
+      this.lastTime = 0;
+      this.loop.reset();
+    });
   }
 
-  /** Starts the render loop. The physics step itself never reads a clock (PLAN section 0). */
+  // ---- debug contract (TTHost) ----------------------------------------------------------------
+
+  get autopilot(): boolean {
+    return this._autopilot;
+  }
+
+  set autopilot(on: boolean) {
+    this._autopilot = on;
+    if (this.sim) this.sim.autopilot = on;
+  }
+
+  /** Applies on the next `loadLevel`. */
+  setTier(t: Tier): void {
+    this.pendingTier = t;
+  }
+
+  /** Rebuild the world and track for a level; resolves when `state === 'playing'`. */
+  async loadLevel(id: string): Promise<void> {
+    const level = getLevel(id);
+    if (!level) throw new Error(`Unknown level "${id}"`);
+
+    this.disposeLevel();
+    this.tier = this.pendingTier;
+    const sim = new GameWorld(level, this.tier);
+    sim.autopilot = this._autopilot;
+    this.sim = sim;
+
+    const palette = palettes[level.palette];
+    this.scene.background = new THREE.Color(palette.sky);
+    this.fog.color.set(palette.fog);
+
+    const material = new THREE.MeshLambertMaterial({ vertexColors: true });
+    this.materials.push(material);
+    this.levelGroup.add(
+      new THREE.Mesh(sim.geoms.floor, material),
+      new THREE.Mesh(sim.geoms.walls, material),
+      sim.ball.group,
+      sim.ball.shadow,
+    );
+
+    this.input.configure(sim.tierTuning.driveMode, sim.tierTuning.steerDecay);
+    this.followCam.setTier(sim.tierTuning);
+    this.loop.reset();
+    this.snapCamera();
+    this.lastRespawnCount = sim.respawnCount;
+    this.setState('playing');
+  }
+
+  /**
+   * Synchronous fast-forward: physics steps only, no render / audio / effects. Runs the autopilot
+   * inside each step when `autopilot` is on, and returns early once `until` is reached. The rAF
+   * loop cannot run while this does, so it is paused by construction.
+   */
+  fastForward(maxSeconds: number, until?: TTState): { state: TTState; seconds: number } {
+    const sim = this.sim;
+    if (!sim || (until && this.state === until)) return { state: this.state, seconds: 0 };
+    const total = Math.round(maxSeconds * tuning.physicsHz);
+    let n = 0;
+    while (n < total && sim.state === 'playing') {
+      sim.step(this.input.controls);
+      n++;
+      this.syncState();
+      if (until && this.state === until) break;
+    }
+    this.loop.reset();
+    sim.ball.applyRender(1);
+    return { state: this.state, seconds: n / tuning.physicsHz };
+  }
+
+  stats(): TTStats {
+    const info = this.renderer.info;
+    return { triangles: info.render.triangles, drawCalls: info.render.calls, fps: this.fps };
+  }
+
+  trackWidth(): number {
+    return this.sim?.width ?? tuning.tiers[this.tier].width;
+  }
+
+  ballState(): ReturnType<TT['ball']> {
+    const sim = this.sim;
+    if (!sim) return { pos: [0, 0, 0], vel: [0, 0, 0], t: 0, lateral: 0 };
+    const p = sim.ball.body.translation();
+    const v = sim.ball.body.linvel();
+    return {
+      pos: [p.x, p.y, p.z],
+      vel: [v.x, v.y, v.z],
+      t: sim.progress.t,
+      lateral: sim.progress.lateralOffset,
+    };
+  }
+
+  // ---- loop -----------------------------------------------------------------------------------
+
+  /** Starts the render loop. Physics inside it is stepped by `GameLoop`, never by a clock read. */
   start(): void {
-    const frame = (nowMs: number) => {
+    if (this.started) return;
+    this.started = true;
+    const frame = (nowMs: number): void => {
       const dt = this.lastTime === 0 ? 0 : Math.min((nowMs - this.lastTime) / 1000, 0.25);
       this.lastTime = nowMs;
-      this.accumulator += dt;
-      const step = 1 / tuning.physicsHz;
-      let n = 0;
-      while (this.accumulator >= step && n < tuning.maxSubSteps) {
-        this.stepPhysics();
-        this.accumulator -= step;
-        n++;
-      }
-      if (n === tuning.maxSubSteps) this.accumulator = 0;
-      this.syncMesh();
-      this.renderer.render(this.scene, this.camera);
+      this.renderFrame(dt);
       this.trackFps(nowMs);
       requestAnimationFrame(frame);
     };
     requestAnimationFrame(frame);
   }
 
-  private stepPhysics(): void {
-    this.world.step();
+  private renderFrame(dt: number): void {
+    const sim = this.sim;
+    if (sim) {
+      this.input.update(dt);
+      const { alpha } = this.loop.advance(dt);
+      sim.ball.applyRender(alpha);
+      if (sim.respawnCount !== this.lastRespawnCount) {
+        this.lastRespawnCount = sim.respawnCount;
+        this.snapCamera();
+      } else {
+        this.followCam.update(dt, sim.ball.renderPosition, sim.spline.frames, sim.progress.index);
+      }
+      sim.ball.updateShadow(sim.colliders.floor);
+    }
+    this.renderer.render(this.scene, this.followCam.camera);
   }
 
-  private syncMesh(): void {
-    const p = this.body.translation();
-    const q = this.body.rotation();
-    this.ballMesh.position.set(p.x, p.y, p.z);
-    this.ballMesh.quaternion.set(q.x, q.y, q.z, q.w);
+  /** One fixed physics step (called by `GameLoop`). Reads no clock. */
+  private physicsStep(): void {
+    const sim = this.sim;
+    if (!sim) return;
+    sim.step(this.input.controls);
+    this.syncState();
+  }
+
+  private syncState(): void {
+    if (this.sim?.state === 'finished' && this.state === 'playing') this.setState('finished');
+  }
+
+  /** Any state change releases the pointer and ignores input for 500 ms (PLAN section 6). */
+  private setState(s: TTState): void {
+    this.state = s;
+    this.input.lock();
+  }
+
+  private snapCamera(): void {
+    const sim = this.sim;
+    if (!sim) return;
+    sim.ball.applyRender(1);
+    this.followCam.snap(sim.ball.renderPosition, sim.spline.frames, sim.progress.index);
+  }
+
+  private disposeLevel(): void {
+    this.levelGroup.clear();
+    for (const m of this.materials) m.dispose();
+    this.materials.length = 0;
+    this.sim?.dispose();
+    this.sim = null;
   }
 
   private resize(): void {
     const w = Math.max(1, window.innerWidth);
     const h = Math.max(1, window.innerHeight);
     this.renderer.setSize(w, h, false);
-    this.camera.aspect = w / h;
-    this.camera.updateProjectionMatrix();
+    this.followCam.setAspect(w / h);
+    this.input.setViewport(w, h);
+    this.input.release();
   }
 
   private trackFps(nowMs: number): void {
@@ -151,17 +250,6 @@ export class App {
       this.fpsFrames = 0;
       this.fpsSince = nowMs;
     }
-  }
-
-  stats(): TTStats {
-    const info = this.renderer.info;
-    return { triangles: info.render.triangles, drawCalls: info.render.calls, fps: this.fps };
-  }
-
-  ballState(): { pos: [number, number, number]; vel: [number, number, number] } {
-    const p = this.body.translation();
-    const v = this.body.linvel();
-    return { pos: [p.x, p.y, p.z], vel: [v.x, v.y, v.z] };
   }
 
   get canvasElement(): HTMLCanvasElement {

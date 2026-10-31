@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-test('boots, renders with WebGL, simulates physics, and installs as a PWA', async ({
+test('boots into levelTest, renders with WebGL, simulates physics, and installs as a PWA', async ({
   page,
   request,
 }) => {
@@ -13,8 +13,11 @@ test('boots, renders with WebGL, simulates physics, and installs as a PWA', asyn
 
   await page.goto('/');
 
-  // State reaches 'title' once the scene is running (RAPIER.init() + renderer done).
-  await page.waitForFunction(() => window.__tt?.state === 'title', undefined, { timeout: 30_000 });
+  // Phase 1b boots straight into levelTest: boot -> playing once RAPIER.init(), the renderer and
+  // the level are ready.
+  await page.waitForFunction(() => window.__tt?.state === 'playing', undefined, {
+    timeout: 30_000,
+  });
 
   // WebGL is real (SwiftShader in CI), not a stub.
   const rendererString = await page.evaluate(() => window.__tt.app.rendererString);
@@ -23,19 +26,17 @@ test('boots, renders with WebGL, simulates physics, and installs as a PWA', asyn
   // The loading screen has been dismissed.
   await expect(page.locator('#loading')).toHaveClass(/hidden/);
 
-  // Physics ran: the ball dropped from 4 m and came to rest on the plane (centre ~0.5 m).
-  await page.waitForFunction(
-    () => {
-      const b = window.__tt.ball();
-      return b.pos[1] < 0.6 && Math.abs(b.vel[1]) < 0.05;
-    },
-    undefined,
-    { timeout: 30_000 },
-  );
-  const rest = await page.evaluate(() => window.__tt.ball().pos[1]);
-  expect(rest).toBeGreaterThan(0.4);
+  // Physics ran: Tiny always rolls, so the ball makes progress along the track by itself.
+  await page.waitForFunction(() => window.__tt.ball().t > 1.5, undefined, { timeout: 30_000 });
+  const ball = await page.evaluate(() => window.__tt.ball());
+  expect(ball.pos[1]).toBeGreaterThan(0.3);
+  expect(ball.pos[1]).toBeLessThan(1.5);
+  expect(Math.abs(ball.lateral)).toBeLessThan(1);
 
   // Something was drawn.
+  await page.waitForFunction(() => window.__tt.stats().triangles > 0, undefined, {
+    timeout: 30_000,
+  });
   const stats = await page.evaluate(() => window.__tt.stats());
   expect(stats.triangles).toBeGreaterThan(0);
   expect(stats.drawCalls).toBeGreaterThan(0);

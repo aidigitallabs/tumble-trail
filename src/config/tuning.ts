@@ -167,6 +167,11 @@ export const tuning = {
     stripeWidthM: 0.4,
     stripeDashM: 1.5,
     stripeGapM: 1.5,
+    /** Collider materials (PLAN section 5). Walls are frictionless so the ball slides along them. */
+    floorFriction: 0.8,
+    floorRestitution: 0,
+    wallFriction: 0,
+    wallRestitution: 0.3,
   },
 
   /** Progress tracker (PLAN section 4 flow). */
@@ -186,18 +191,62 @@ export const tuning = {
   /** Autopilot finish-time proxy for Big kid, seconds [min, max] (PLAN section 13). */
   bigkidLevelSeconds: [12, 60],
 
-  /** Phase 0 smoke scene only. */
-  smoke: {
-    ballRadius: 0.5,
-    ballStartHeight: 4,
-    planeHalfSize: 10,
-    planeThickness: 0.2,
+  /** Physics world (PLAN section 6). */
+  physics: {
     gravity: -9.81,
-    ballRestitution: 0.35,
-    cameraBack: 7,
-    cameraUp: 4,
-    cameraLookAtY: 0.8,
-    verticalFov: 60,
+    /** Spawn at this arc length on the first start (a stand-in for the Phase 2 start pad). */
+    startArcM: 1,
+    /** Catch plane half extent beyond the track bounding box, metres. */
+    catchPlaneMarginM: 50,
+    /** The catch plane counts as hit when the ball centre is within this many metres of its top. */
+    catchPlaneHitM: 1,
+  },
+
+  /** Follow camera (PLAN section 7). Distances per tier are in the tier table. */
+  camera: {
+    /** Constant horizontal field of view, degrees (vertical FOV follows the aspect ratio). */
+    horizontalFovDeg: 75,
+    near: 0.1,
+    far: 120,
+    /** The look-at point sits this high above the ball so the ball is framed lower-middle. */
+    lookAtUpM: 0.8,
+    /** prefers-reduced-motion multiplies the smoothing rate by this. */
+    reducedMotionSmoothing: 2,
+  },
+
+  /** Scene look (PLAN section 9). */
+  render: {
+    fogNear: 30,
+    fogFar: 80,
+    hemisphereIntensity: 1.7,
+    sunIntensity: 1.3,
+    sunPosition: [6, 12, 4],
+    /** Ground colour of the hemisphere light. */
+    hemisphereGround: 0xb8c9a0,
+  },
+
+  /** Ball visuals (PLAN section 6). */
+  ballVisual: {
+    widthSegments: 28,
+    heightSegments: 18,
+    /** Back-face outline hull scale. */
+    outlineScale: 1.07,
+    shadowOpacity: 0.28,
+    /** Blob shadow is raised this far above the floor hit. */
+    shadowLiftM: 0.02,
+    /** Raycast length below the ball, metres. */
+    shadowMaxDistM: 8,
+    /** Shadow radius scale at the floor and its growth per metre of height (shrinks as it rises). */
+    shadowRadiusScale: 0.95,
+    shadowFadePerM: 0.18,
+  },
+
+  /** Autopilot (PLAN section 13). */
+  autopilot: {
+    /** Look this far ahead along the track for the curve-anticipation term, metres. */
+    lookAheadM: 4,
+    /** Weight of the look-ahead lateral term relative to the centring term. */
+    lookAheadGain: 0.5,
   },
 } as const;
 
