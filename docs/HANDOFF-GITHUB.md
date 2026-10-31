@@ -11,8 +11,8 @@ rights. Your job is to **organise it properly on GitHub**, not to change the gam
 
 ## What exists
 
-- **Tumble Trail**: an original, ad-free rolling-ball obstacle-course web game (Vite + TypeScript
-  + three + Rapier, PWA) for a 3-year-old and her siblings to play on iPads.
+- **Tumble Trail**: an original, ad-free rolling-ball obstacle-course web game (Vite + TypeScript +
+  three + Rapier, PWA) for a 3-year-old and her siblings to play on iPads.
 - It lives as a standalone project at `games/tumble-trail/` inside the `aidigitallabs/cc-ops`
   repo, on branch **`ccr-c90fa07a-a1hn6q`** (already pushed to origin). It has its own
   `package.json`, `.github/workflows/ci.yml` and `pages.yml` (written for repo-root, so they are
@@ -39,10 +39,12 @@ rights. Your job is to **organise it properly on GitHub**, not to change the gam
    topics or settings beyond what is listed here.
 
 3. **Move the project with its history.**
+
    ```
    git subtree split --prefix=games/tumble-trail -b tumble-trail-main
    git push https://github.com/aidigitallabs/tumble-trail.git tumble-trail-main:main
    ```
+
    Then clone the new repo somewhere separate and confirm `docs/`, `src/`, `.github/workflows/`,
    `public/icons/*.png` (four files) and `package-lock.json` are all present at the root.
 
