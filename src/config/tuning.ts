@@ -56,6 +56,27 @@ export interface TierTuning {
   cameraSmoothing: number;
 }
 
+/** One synthesised note (PLAN section 10). Times are seconds; `peak` is 0..1 of `audio.sfxPeak`. */
+export interface NoteSpec {
+  /** Start frequency in Hz. 0 = chosen by the caller (the next pentatonic note, or the star tick). */
+  readonly hz: number;
+  /** Optional glide target in Hz, reached after `glideS` (linear in frequency). */
+  readonly glideTo?: number;
+  readonly glideS?: number;
+  /** Start offset from the sound's start. */
+  readonly at: number;
+  readonly attack: number;
+  /** Time spent at the peak before the release starts. */
+  readonly hold: number;
+  readonly release: number;
+  readonly peak: number;
+  readonly type: 'sine' | 'triangle';
+}
+
+export interface SoundSpec {
+  readonly notes: readonly NoteSpec[];
+}
+
 export const tuning = {
   /** Renderer pixel-ratio cap on touch devices (iPads) and everywhere else (PLAN section 11). */
   pixelRatioCapTouch: 1.25,
@@ -287,6 +308,237 @@ export const tuning = {
     maxPerSecond: 2,
   },
 
+  /**
+   * Synthesised audio (PLAN section 10). Every note: attack >= minAttackS, release >= minReleaseS,
+   * low-passed at or below maxCutoffHz, through a master gain of masterDb. No noise sources.
+   */
+  audio: {
+    /** Master gain, dB (PLAN: -6). Muted = 0. */
+    masterDb: -6,
+    /** Gain of a note with `peak` 1, before the master gain. */
+    sfxPeak: 0.6,
+    minAttackS: 0.01,
+    minReleaseS: 0.06,
+    /** Hard ceiling of every low-pass; `cutoffHz` is what the notes use. */
+    maxCutoffHz: 3000,
+    cutoffHz: 2600,
+    /** Time constant of the master gain when the mute flag changes (no click). */
+    muteTimeConstantS: 0.03,
+    /** While any SFX plays the rolling hum drops to `gain` (attack / release time constants, s). */
+    duck: { gain: 0.25, attackTc: 0.02, releaseTc: 0.2, tailS: 0.1 },
+    /** Rolling hum: triangle + low-pass, gain proportional to speed, -18 dB under the SFX. */
+    rolling: {
+      db: -18,
+      type: 'triangle',
+      minHz: 70,
+      maxHz: 120,
+      cutoffHz: 500,
+      /** Gain follows the speed with these time constants (attack >= 10 ms, release >= 60 ms). */
+      attackTc: 0.08,
+      releaseTc: 0.15,
+      /** Ignore speed-ratio changes smaller than this (keeps the automation timeline short). */
+      epsilon: 0.01,
+    },
+    /** Wall / obstacle blips cycle through this C major pentatonic (C5 D5 E5 G5 A5). */
+    pentatonicHz: [523.25, 587.33, 659.25, 783.99, 880],
+    /** Star count-up ticks, ascending; the last one repeats for more stars. */
+    starTickHz: [659.25, 783.99, 880, 1046.5, 1174.66, 1318.51],
+    /** Delay before the first star tick after the Finished screen appears, seconds. */
+    starTickFirstS: 0,
+    sounds: {
+      /** Soft blip on a new wall / obstacle contact. */
+      contact: {
+        notes: [
+          { hz: 0, at: 0, attack: 0.012, hold: 0.02, release: 0.15, peak: 0.45, type: 'sine' },
+        ],
+      },
+      /** Soft pop (a quick downward sweep) followed by a rising blip. */
+      pop: {
+        notes: [
+          {
+            hz: 620,
+            glideTo: 220,
+            glideS: 0.09,
+            at: 0,
+            attack: 0.01,
+            hold: 0.01,
+            release: 0.09,
+            peak: 0.6,
+            type: 'sine',
+          },
+          {
+            hz: 660,
+            glideTo: 1040,
+            glideS: 0.14,
+            at: 0.07,
+            attack: 0.012,
+            hold: 0.04,
+            release: 0.12,
+            peak: 0.4,
+            type: 'sine',
+          },
+        ],
+      },
+      /** Two-note rising chime. */
+      checkpoint: {
+        notes: [
+          {
+            hz: 783.99,
+            at: 0,
+            attack: 0.012,
+            hold: 0.08,
+            release: 0.2,
+            peak: 0.5,
+            type: 'triangle',
+          },
+          {
+            hz: 1046.5,
+            at: 0.13,
+            attack: 0.012,
+            hold: 0.1,
+            release: 0.4,
+            peak: 0.5,
+            type: 'triangle',
+          },
+        ],
+      },
+      /** Neutral-to-upward boop; never descending. */
+      respawn: {
+        notes: [
+          {
+            hz: 330,
+            glideTo: 494,
+            glideS: 0.2,
+            at: 0,
+            attack: 0.015,
+            hold: 0.1,
+            release: 0.15,
+            peak: 0.45,
+            type: 'sine',
+          },
+        ],
+      },
+      /** Four-note major arpeggio (C E G C) over a soft tonal whoosh (no noise). */
+      celebration: {
+        notes: [
+          {
+            hz: 523.25,
+            at: 0,
+            attack: 0.012,
+            hold: 0.1,
+            release: 0.35,
+            peak: 0.5,
+            type: 'triangle',
+          },
+          {
+            hz: 659.25,
+            at: 0.15,
+            attack: 0.012,
+            hold: 0.1,
+            release: 0.35,
+            peak: 0.5,
+            type: 'triangle',
+          },
+          {
+            hz: 783.99,
+            at: 0.3,
+            attack: 0.012,
+            hold: 0.1,
+            release: 0.35,
+            peak: 0.5,
+            type: 'triangle',
+          },
+          {
+            hz: 1046.5,
+            at: 0.45,
+            attack: 0.012,
+            hold: 0.2,
+            release: 0.6,
+            peak: 0.55,
+            type: 'triangle',
+          },
+          {
+            hz: 180,
+            glideTo: 700,
+            glideS: 0.9,
+            at: 0,
+            attack: 0.3,
+            hold: 0.2,
+            release: 0.5,
+            peak: 0.18,
+            type: 'sine',
+          },
+        ],
+      },
+      /** Soft click for buttons. */
+      click: {
+        notes: [
+          {
+            hz: 740,
+            at: 0,
+            attack: 0.01,
+            hold: 0.012,
+            release: 0.07,
+            peak: 0.35,
+            type: 'triangle',
+          },
+        ],
+      },
+      /** One star tick (frequency from `starTickHz`). */
+      tick: {
+        notes: [
+          { hz: 0, at: 0, attack: 0.01, hold: 0.015, release: 0.09, peak: 0.4, type: 'triangle' },
+        ],
+      },
+    } satisfies Record<string, SoundSpec>,
+  },
+
+  /**
+   * Render-side effects (PLAN sections 8, 9, 16). Effects run in the render step only, never in
+   * `GameWorld.step`.
+   */
+  effects: {
+    /** Particle pool size (instanced quads): confetti (<= 300) plus pop bursts and sparkles. */
+    maxQuads: 360,
+    /** Confetti pieces for a normal and for the final-level celebration (PLAN: <= 300). */
+    confettiCount: 220,
+    finalConfettiCount: 300,
+    /** Confetti is released in this many waves, `confettiWaveS` apart. */
+    confettiWaves: 3,
+    confettiWaveS: 0.25,
+    confettiLifeS: [2.4, 3.2],
+    /** Launch speeds: upward and sideways (m/s); the confetti is launched from the ball. */
+    confettiUp: [5, 9],
+    confettiOut: [1, 6],
+    confettiGravity: -6,
+    /** Air drag (1/s): confetti flutters down instead of falling like a stone. */
+    confettiDrag: 1.4,
+    confettiSize: 0.3,
+    confettiAspect: 0.55,
+    confettiSpin: [4, 12],
+    /** Balloon pop burst: 6-12 quads. */
+    popBurstCount: 9,
+    popBurstSpeed: [2, 4.5],
+    popBurstLifeS: [0.45, 0.7],
+    popBurstSize: 0.2,
+    popBurstGravity: -5,
+    /** Checkpoint sparkle: rising diamonds around the ball. */
+    sparkleCount: 12,
+    sparkleRadius: 0.9,
+    sparkleRise: [1.2, 2.6],
+    sparkleLifeS: [0.6, 0.95],
+    sparkleSize: 0.26,
+    /** Quads grow in over `growS` and shrink away over the last `fadeS` of their life. */
+    growS: 0.06,
+    fadeS: 0.35,
+    /** Landing squash: x / z scale, y scale, how long it takes to relax (PLAN section 16), the downward speed (m/s, along the track's up) that counts as an impact and the speed below which the ball has "landed". */
+    squash: { xz: 1.15, y: 0.85, seconds: 0.12, minImpactSpeed: 1.5, landedSpeed: 0.5 },
+    /** Respawn glow (ball-local, soft): rises, then fades; size in metres. */
+    glow: { riseS: 0.12, fallS: 0.5, peak: 0.6, sizeM: 3.4, color: 0xffffff, textureSize: 32 },
+    /** Fixed PRNG seed (effects are deterministic; no Math.random). */
+    seed: 5,
+  },
+
   /** Decor (PLAN section 9): placed 8-16 m from the centreline by a PRNG seeded from the level id. */
   decor: {
     perMetre: 0.5,
@@ -412,7 +664,7 @@ export const tuning = {
     resetConfirmFraction: 0.92,
     /** Parent menu FPS readout refresh, ms. */
     fpsRefreshMs: 500,
-    /** Confetti pieces in the CSS burst (placeholder until Phase 5), and for the final level. */
+    /** Pieces in the small CSS burst on the Finished screen (the celebrating confetti is 3D). */
     confettiPieces: 36,
     finalConfettiPieces: 80,
   },

@@ -465,3 +465,85 @@ terminal speed). Fastest points: the level 4 descent (Tiny 5.4, Big kid 6.8 m/s)
 - Section 8's wake lock "during play" and iOS's user-gesture rule can conflict; ignored on failure.
 - Section 16 Phase 4 lists "title -> ball -> level 1": the ball choice is a highlight on the title, not
   a separate step, so a run is title -> play.
+
+## 31 Oct 2026 — Phase 5: synthesised audio, effects, reduced motion
+
+**Done**
+
+- `src/game/Audio.ts` (`GameAudio` + pure helpers): every sound is an oscillator (sine / triangle,
+  no noise) -> low-pass (2.6 kHz, capped at 3 kHz) -> linear envelope (attack >= 10 ms, release >=
+  60 ms, both clamped in code) -> SFX bus -> master gain (-6 dB, 0 when muted). Sounds for every row of
+  PLAN section 10: rolling hum (gain proportional to ground speed, -18 dB under the SFX, ducked while
+  any SFX plays), contact blip (pentatonic, from the existing rate-limited `contact` events), balloon
+  pop, checkpoint chime, respawn boop (upward only), celebration arpeggio + tonal whoosh, ascending
+  star ticks (scheduled on the audio clock to match the star animation) and a button click.
+  `AudioContext` is created on the first `pointerup` (nothing exists before it), `resume()` is retried
+  on every `pointerup` and on `visibilitychange -> visible`, suspended when hidden, the persisted
+  `muted` flag drives the master gain (and the parent-menu toggle now takes effect at once).
+- `src/game/Effects.ts`: one 360-quad `InstancedMesh` for confetti (220, 300 on the final level, 3
+  waves, palette + balloon colours), balloon pop bursts (9 quads) and checkpoint sparkles (12
+  diamonds); a soft ball-local respawn glow; the landing squash (`Ball.squash`, 1.15 / 0.85, 120 ms,
+  drawn matrix only). All driven from `App.renderFrame`; physics steps and `fastForward` only queue /
+  discard events. Replaced the Celebrating CSS confetti with the 3D one; the Finished screen keeps its
+  small CSS burst (logged).
+- `prefers-reduced-motion` (`src/app/motion.ts`, live): camera smoothing x2, no confetti (static
+  stars), no landing squash.
+- `__tt.audio()` -> `{ state, muted }` and `__tt.effects()` -> `{ particles, reducedMotion }`.
+- Tunables: `tuning.audio` and `tuning.effects`.
+- Unit tests 324 -> 381 (24 files): envelope floors on every note through a recording fake
+  `AudioContext` (attack, release, low-pass, waveform, chain, cleanup), every sound's musical
+  contract (rising chime, never-descending respawn, C-E-G-C arpeggio, ascending ticks), context
+  lifecycle (nothing before the gesture, lazy create, resume retries incl. rejection, hidden / visible,
+  failing constructors), mute gain and silence, ducking, rolling gain / epsilon, particle pool
+  (capacity, swap-remove, drag / gravity), spawn counts (confetti <= 300, 0 when reduced, burst 6-12,
+  waves), scale envelopes, glow, landing detector (ramp is not a landing), `Ball.squash` matrix,
+  reduced-motion flag, camera smoothing x2.
+- E2E 36 -> 47: smoke now asserts a clean console and `audio().state === 'none'` before the first
+  gesture and `running` after one `mouse.click`; `audio.spec.ts` (no context / warnings before a
+  gesture, pointerdown alone does not unlock, persisted mute, menu toggle); `effects.spec.ts` (stats
+  within budget during a celebration on levelTest and level06, both tiers: 12 draws, 12.8k-17.5k
+  tris, 220-300 particles; live pop / sparkle spawn quads; reduced motion releases no confetti;
+  real button press with audio unlocked).
+- Checks (in the worktree): `lint`, `typecheck`, `test:unit` (381/381), `build`, `test:e2e` (47/47).
+
+**Skipped and why**
+
+- Nothing from Phase 5. Not done on purpose: no per-segment contact sound pitch variation beyond the
+  pentatonic cycle, no music, no spatial audio (guardrail 10: not in the plan).
+
+**PENDING HUMAN**
+
+- PENDING HUMAN: on a real iPad (home-screen app), audio plays after the first tap, hardware volume
+  buttons change the level, the mute toggle in the parent menu silences everything, backgrounding and
+  returning brings the sound back after the next tap, and the rolling hum / duck balance is pleasant
+  (not droning, not louder than the blips). Headless Chromium proves the context reaches `running`,
+  not that anything is audible.
+- PENDING HUMAN: confetti frame time on the oldest iPad (celebration of the final level, 300 quads in
+  one draw call) and that the landing squash reads as a "boing" rather than a glitch.
+- PENDING HUMAN: the balance of contact blips vs the pop / checkpoint sounds during real play (the
+  blips are rate-limited to 2 per second, 1 s per collider).
+
+**Look at next**
+
+- Phase 6 hardening: check `IPAD_CHECKLIST.md`'s audio line, and the wake-lock / audio interaction when
+  the app is backgrounded (suspend on hidden is done; resume needs a pointerup on iOS).
+- The first `pointerup` on the title is also the first button click, so the first click sound is
+  skipped (the context is still `suspended` while `resume()` resolves); every later one plays.
+- The 3D confetti rises out of frame behind the camera's top edge on some levels; if it looks thin on
+  the iPad, raise `tuning.effects.confettiOut` / lower `confettiUp`.
+- If squash on bump landings is too frequent for the iPad eye, raise `effects.squash.minImpactSpeed`.
+
+**Plan inconsistencies found (plan not changed)**
+
+- Section 16 asks for "ball squash on landing (scale 1.15/0.85 for 120 ms)": a constant for 120 ms
+  vs a relaxing pulse is not specified; implemented as full squash relaxing over 120 ms.
+- Section 16 says "respawn vignette"; section 6 says "soft vignette only - no full-screen flash". A
+  vignette is normally a screen-edge effect, the task brief says "ball-local"; implemented as a soft
+  glow at the ball.
+- Section 10 lists "contact sounds from ActiveEvents.CONTACT_FORCE_EVENTS filtered to wall/obstacle
+  handles" with "<= 2/s, 1 s refractory per collider": all wall segments are one trimesh collider
+  (noted in Phase 2), so in practice that is at most one wall blip per second.
+- Section 10 "button" sound vs section 8 "no interactive elements during play": buttons only exist
+  outside play, so the click never sounds in play. Consistent, just worth knowing.
+- Section 13 e2e wording ("`__tt.audio` ... `state`") does not exist in section 4's `TT` interface;
+  added (and `effects()`), as the task asked.

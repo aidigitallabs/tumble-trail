@@ -1,8 +1,10 @@
 import * as THREE from 'three';
 import { ballCharacters, palettes } from '../config/brand';
 import { pickPixelRatio, tuning } from '../config/tuning';
+import { GameAudio } from '../game/Audio';
 import { FollowCamera } from '../game/Camera';
-import { GameWorld } from '../game/GameWorld';
+import { Effects } from '../game/Effects';
+import { GameWorld, type SimEvent } from '../game/GameWorld';
 import { LevelView } from '../game/LevelView';
 import { getLevel, levels } from '../levels';
 import type { LevelDef, Tier } from '../levels/schema';
@@ -10,12 +12,23 @@ import { fastForwardSim } from './fastForward';
 import { initialFlow, transition, type FlowEvent, type FlowState } from './flow';
 import { GameLoop } from './GameLoop';
 import { Input } from './Input';
+import { reducedMotionFromWindow, type ReducedMotion } from './motion';
 import { UpdateGate } from './updateGate';
 import { playableLevels, type LevelInfo } from './levelList';
 import type { BallIndex, Persistence, SaveData } from './Persistence';
 import { Screens, type ScreensHost } from './Screens';
-import type { TT, TTHost, TTState, TTStats } from './tt';
+import type { TT, TTAudio, TTEffects, TTHost, TTState, TTStats } from './tt';
 import { WakeLockKeeper } from './wakeLock';
+
+const ORIGIN = new THREE.Vector3();
+/** Safety cap on queued sim events between two rendered frames (a hidden tab keeps stepping). */
+const MAX_PENDING_EVENTS = 64;
+
+/** Ground speed of the ball, m/s (the vertical component is a fall, not rolling). */
+function horizontalSpeed(sim: GameWorld): number {
+  const v = sim.ball.body.linvel();
+  return Math.hypot(v.x, v.z);
+}
 
 export interface AppOptions {
   persistence: Persistence;
@@ -48,7 +61,14 @@ export class App implements TTHost, ScreensHost {
   private readonly loop: GameLoop;
   private readonly levelGroup = new THREE.Group();
   private view: LevelView | null = null;
-  private reducedMotion = false;
+  private readonly motion: ReducedMotion;
+  private readonly audio: GameAudio;
+  private readonly effects = new Effects();
+  /** Sim events handed over by the physics step, consumed by the render step (sound, effects). */
+  private pendingEvents: SimEvent[] = [];
+  /** The flow state the effects / sounds last reacted to (parent menu counts as what is under it). */
+  private fxBase: TTState = 'boot';
+  private fxRespawnCount = 0;
   private readonly fog = new THREE.Fog(0xffffff, tuning.render.fogNear, tuning.render.fogFar);
 
   /** Tier of the loaded world. */
@@ -107,9 +127,15 @@ export class App implements TTHost, ScreensHost {
     this.scene.add(this.levelGroup);
 
     this.followCam = new FollowCamera(tuning.tiers[this.tier]);
-    const motion = window.matchMedia?.('(prefers-reduced-motion: reduce)');
-    this.reducedMotion = motion?.matches ?? false;
-    this.followCam.setReducedMotion(this.reducedMotion);
+    this.motion = reducedMotionFromWindow();
+    this.applyReducedMotion(this.motion.value);
+    this.motion.subscribe((on) => this.applyReducedMotion(on));
+
+    // Audio: nothing is created until the first pointerup (iOS user activation), then resume() is
+    // retried on every later one while the context is not running.
+    this.audio = new GameAudio({ muted: this.persistence.data.muted });
+    window.addEventListener('pointerup', () => this.audio.unlock(), { capture: true });
+    this.scene.add(this.effects.group);
 
     this.loop = new GameLoop(() => this.physicsStep());
     this.input.attach(canvas);
@@ -122,6 +148,7 @@ export class App implements TTHost, ScreensHost {
     document.addEventListener('visibilitychange', () => {
       this.lastTime = 0;
       this.loop.reset();
+      this.audio.setVisible(document.visibilityState === 'visible');
     });
   }
 
@@ -191,6 +218,7 @@ export class App implements TTHost, ScreensHost {
         },
       );
       this.loop.reset();
+      this.resetFx();
       sim.ball.applyRender(1);
     }
     if (until === 'finished' && this.state === 'celebrating') this.skipCelebration();
@@ -200,6 +228,14 @@ export class App implements TTHost, ScreensHost {
   stats(): TTStats {
     const info = this.renderer.info;
     return { triangles: info.render.triangles, drawCalls: info.render.calls, fps: this.fpsValue };
+  }
+
+  audioStatus(): TTAudio {
+    return { state: this.audio.state, muted: this.audio.muted };
+  }
+
+  effectsStatus(): TTEffects {
+    return { particles: this.effects.activeCount, reducedMotion: this.motion.value };
   }
 
   balloons(): { total: number; popped: number } {
@@ -307,8 +343,13 @@ export class App implements TTHost, ScreensHost {
     this.screens.refresh();
   }
 
+  buttonPressed(): void {
+    this.audio.play('click');
+  }
+
   setMuted(muted: boolean): void {
     this.persistence.setMuted(muted);
+    this.audio.setMuted(muted);
     this.screens.refresh();
   }
 
@@ -418,7 +459,9 @@ export class App implements TTHost, ScreensHost {
     this.scene.background = new THREE.Color(palette.sky);
     this.fog.color.set(palette.fog);
 
-    this.view = new LevelView(sim, { reducedMotion: this.reducedMotion });
+    this.view = new LevelView(sim, { reducedMotion: this.motion.value });
+    this.effects.setPalette(palette);
+    this.resetFx();
     this.levelGroup.add(this.view.group, sim.ball.group, sim.ball.shadow);
 
     this.input.configure(sim.tierTuning.driveMode, sim.tierTuning.steerDecay);
@@ -462,6 +505,7 @@ export class App implements TTHost, ScreensHost {
       // The parent menu pauses physics; the world just stands there behind it.
       if (this.state !== 'parentMenu') this.lastAlpha = this.loop.advance(dt).alpha;
       this.view?.update(dt);
+      this.renderFx(dt, sim);
       sim.ball.applyRender(this.lastAlpha);
       if (sim.respawnCount !== this.lastRespawnCount) {
         this.lastRespawnCount = sim.respawnCount;
@@ -471,6 +515,7 @@ export class App implements TTHost, ScreensHost {
       }
       sim.ball.updateShadow(sim.colliders.floor);
     }
+    this.effects.update(dt, this.followCam.camera, sim?.ball.renderPosition ?? ORIGIN);
     this.updateHud(dt);
     this.renderer.render(this.scene, this.followCam.camera);
   }
@@ -499,8 +544,84 @@ export class App implements TTHost, ScreensHost {
     const sim = this.sim;
     if (!sim) return;
     sim.step(this.input.controls);
-    sim.drainEvents(); // Phase 5 will play these; until then they are simply dropped
+    // Hand the events to the render step: sound and effects never run inside the physics step.
+    for (const e of sim.drainEvents()) this.pendingEvents.push(e);
+    if (this.pendingEvents.length > MAX_PENDING_EVENTS) {
+      this.pendingEvents.splice(0, this.pendingEvents.length - MAX_PENDING_EVENTS);
+    }
     this.syncState();
+  }
+
+  private applyReducedMotion(on: boolean): void {
+    this.followCam.setReducedMotion(on);
+    this.effects.setReducedMotion(on);
+  }
+
+  /** Drop everything in flight: a new level, or a fast-forward that skipped frames. */
+  private resetFx(): void {
+    this.pendingEvents = [];
+    this.effects.reset();
+    this.sim?.ball.squash.set(1, 1, 1);
+    // Respawns that happened while skipping frames get no boop and no glow.
+    this.fxRespawnCount = this.sim?.respawnCount ?? 0;
+  }
+
+  /**
+   * Sound and effects for this rendered frame (PLAN sections 9 and 10). Render step only: it reads
+   * the events the physics step queued, never the physics step itself. The title / level-select
+   * backdrop is silent but still shows its pops.
+   */
+  private renderFx(dt: number, sim: GameWorld): void {
+    const live = !this.simIsDemo;
+    const events = this.pendingEvents;
+    this.pendingEvents = [];
+    for (const e of events) {
+      if (e.type === 'pop') {
+        const b = sim.balloons[e.index];
+        if (b) this.effects.popBurst(b.centre, e.index);
+        if (live) this.audio.play('pop');
+      } else if (e.type === 'checkpoint') {
+        this.effects.sparkle(sim.ball.renderPosition);
+        if (live) this.audio.play('checkpoint');
+      } else if (live) {
+        this.audio.play('contact');
+      }
+    }
+
+    if (sim.respawnCount !== this.fxRespawnCount) {
+      this.fxRespawnCount = sim.respawnCount;
+      this.effects.respawn();
+      if (live) this.audio.play('respawn');
+    }
+
+    const base: TTState =
+      this.flow.state === 'parentMenu' ? (this.flow.under ?? 'title') : this.flow.state;
+    if (base !== this.fxBase) {
+      if (base === 'celebrating' && live) {
+        this.effects.celebrate(sim.ball.renderPosition, this.run.final);
+        this.audio.play('celebration');
+      } else if (base === 'finished' && live) {
+        this.audio.starTicks(this.run.stars, tuning.ui.starStepMs / 1000);
+      }
+      this.fxBase = base;
+    }
+
+    // Rolling hum: only while actually playing a level (not the backdrop, not under the menu).
+    const rolling = live && this.state === 'playing' && !sim.respawning;
+    const ratio = rolling ? Math.min(1, horizontalSpeed(sim) / sim.tierTuning.maxSpeed) : 0;
+    this.audio.setRolling(ratio);
+
+    // Landing squash: velocity along the track's up (a ramp is not a landing).
+    const ball = sim.ball;
+    if (this.motion.value || sim.respawning || this.state === 'parentMenu') {
+      this.effects.landing.reset();
+      ball.squash.set(1, 1, 1);
+    } else {
+      const v = ball.body.linvel();
+      const up = sim.progress.frame.up;
+      this.effects.landing.sample(v.x * up.x + v.y * up.y + v.z * up.z);
+      this.effects.landing.update(dt, ball.squash);
+    }
   }
 
   private snapCamera(): void {

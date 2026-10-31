@@ -41,6 +41,21 @@ test('boots to the title, renders with WebGL, simulates physics, and installs as
   expect(stats.triangles).toBeGreaterThan(0);
   expect(stats.drawCalls).toBeGreaterThan(0);
 
+  // Phase 5: before the first gesture nothing audio-related exists or has been logged (an
+  // AudioContext made without a gesture would warn; ours is created on the first pointerup).
+  expect(errors).toEqual([]);
+  expect(await page.evaluate(() => window.__tt.audio())).toEqual({ state: 'none', muted: false });
+
+  // One click on the page (a harmless spot, away from every button) creates and resumes the context.
+  await page.mouse.click(512, 40);
+  await page.waitForFunction(() => window.__tt.audio().state === 'running', undefined, {
+    timeout: 10_000,
+  });
+  expect(await page.evaluate(() => window.__tt.audio())).toEqual({
+    state: 'running',
+    muted: false,
+  });
+
   // Manifest is served and valid enough for installation.
   const href = await page.locator('link[rel="manifest"]').getAttribute('href');
   expect(href).toBeTruthy();

@@ -32,6 +32,8 @@ export interface ScreensHost {
   setLowGraphics(on: boolean): void;
   resetBall(): void;
   dismissCard(): void;
+  /** A button press was accepted (not inside the screen lockout): the soft click. */
+  buttonPressed(): void;
 }
 
 type Attrs = Record<string, string>;
@@ -149,7 +151,8 @@ export class Screens {
     this.hud.append(this.hudStars, this.hint);
 
     // ---- celebrating
-    this.celebrate.append(h('div', 'burst'), h('div', 'big-star', {}, icons.star));
+    // The confetti here is 3D (Effects.ts); only the star pops in the DOM.
+    this.celebrate.append(h('div', 'big-star', {}, icons.star));
 
     // ---- finished
     this.nextButton = this.button('play-big', 'next', 'next', icons.play, () => this.host.play());
@@ -369,6 +372,7 @@ export class Screens {
     b.addEventListener('click', () => {
       // A press only counts once the screen's lockout is over (a fresh pointerdown is required).
       if (performance.now() < this.readyAt) return;
+      this.host.buttonPressed();
       onPress();
     });
     return b;
@@ -378,7 +382,9 @@ export class Screens {
   private rebuildBase(): void {
     this.hudShown = { earned: -1, max: -1 };
     if (this.base === 'finished') this.buildFinished();
-    if (this.base === 'celebrating') this.buildBurst(this.celebrate.querySelector('.burst'));
+    if (this.base === 'celebrating') {
+      this.celebrate.classList.toggle('final', this.host.lastRun().final);
+    }
   }
 
   private buildBurst(el: Element | null): void {
@@ -395,7 +401,6 @@ export class Screens {
       html += `<i style="--a:${angle}deg;--d:${dist}vmin;--c:${colors[i % colors.length]};--t:${delay}s"></i>`;
     }
     el.innerHTML = html;
-    this.celebrate.classList.toggle('final', run.final);
   }
 
   private buildFinished(): void {
