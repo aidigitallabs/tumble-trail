@@ -122,6 +122,12 @@ export const tuning = {
     /** Drive is multiplied by uphillBoost while the track climbs steeper than this (degrees). */
     uphillBoostAboveDeg: 12,
     uphillBoost: 1.5,
+    /**
+     * Parking rule: while not driving, a ball whose speed along the track surface (tangent and
+     * sideways components) is below this (m/s) is brought to a dead stop each step. Damping alone
+     * leaves a creep of (5/7 g sin(slope)) / brakeDamping = 0.72 m/s on a 15 degree ramp.
+     */
+    parkSpeed: 0.6,
     /** Stuck detection: driving and slower than stuckSpeed for stuckSeconds -> respawn. */
     stuckSpeed: 0.3,
     stuckSeconds: 3,

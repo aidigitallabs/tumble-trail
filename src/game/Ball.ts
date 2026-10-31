@@ -199,6 +199,20 @@ export class Ball {
       this.body.setLinvel({ x: w.x * s, y: w.y, z: w.z * s }, true);
     }
 
+    // Parking rule: not driving and nearly still along the track surface -> stop dead (damping
+    // alone cannot hold a ball on a ramp). Only the components along the surface (tangent and
+    // sideways) are removed, so a ball that is falling onto the track still falls.
+    if (!ctl.driving) {
+      const u = this.body.linvel();
+      const uTan = u.x * f.tangent.x + u.y * f.tangent.y + u.z * f.tangent.z;
+      const uLat = u.x * f.right.x + u.y * f.right.y + u.z * f.right.z;
+      if (Math.hypot(uTan, uLat) < b.parkSpeed) {
+        const uUp = u.x * f.up.x + u.y * f.up.y + u.z * f.up.z;
+        this.body.setLinvel({ x: f.up.x * uUp, y: f.up.y * uUp, z: f.up.z * uUp }, true);
+        this.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+      }
+    }
+
     // Stuck detection: driving yet barely moving.
     if (ctl.driving && Math.hypot(w.x, w.y, w.z) < b.stuckSpeed) this.stuckSteps++;
     else this.stuckSteps = 0;

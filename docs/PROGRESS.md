@@ -311,3 +311,90 @@ bumps, props, balloons, flags, 3 decor shapes, ball, outline, shadow.)
   plan-view separation test (see DECISIONS).
 - Section 4 `Effects.ts` / `Audio.ts` do not exist yet (Phase 5); `GameWorld.drainEvents()` is the
   plumbing they will use.
+
+## 31 Oct 2026 — Phase 3: six levels, parking rule
+
+**Done**
+
+- **Parking rule** (`tuning.ball.parkSpeed = 0.6`, `Ball.applyControls`): not driving and slower than
+  0.6 m/s along the surface -> stop dead (tangent / sideways velocity and spin zeroed; the vertical
+  component is kept so a dropping ball still falls). On `levelTest`'s 15 degree ramp, released
+  mid-ramp, both tiers are below `parkSpeed` within 2 s and then hold with an arc-mark range of 0 over
+  the next 6 s (`tests/unit/levelsParking.test.ts`, 5 tests, deterministic). Replaces the 0.74 m/s
+  creep measured in Phase 2.
+- **`level01`-`level06`** (`src/levels/level0N.ts`, registered in order in `src/levels/index.ts`,
+  `levelTest` after them; `shippedLevels` / `testLevels` also exported). All pass `validateLevel`.
+  A small route builder, `src/levels/path.ts` (straights, eased arcs, height ramps -> control points),
+  authors them; the `LevelDef`s are still plain point lists.
+- **Unit tests** `tests/unit/levelsShipped.test.ts` (56): registry order, names / palettes, per level
+  `validateLevel` (errors printed on failure), 80-120 m, Tiny kinds and balloon spacing, no bump on or
+  within 12 m after a descent, 8 m flat after every gate, autopilot finish with 0 respawns and the
+  bump speed (Tiny <= 4.5 m/s) in both tiers, Big kid window, the Appendix B shape of each level, the
+  path builder. 206 -> 267 unit tests in 18 files.
+- **E2E** `tests/e2e/levels.spec.ts` (12): every level x tier, `setTier`, `loadLevel`, autopilot,
+  `fastForward(150, 'finished')`, state `finished`, no respawn (see DECISIONS for how it is counted),
+  Big kid time in [12, 60] s, stats (start / middle / end) <= 40 000 tris and <= 40 draw calls, no
+  console errors. 9 -> 21 e2e tests.
+- Checks: `lint`, `typecheck`, `test:unit` (267/267), `build`, `test:e2e` (21/21) all pass locally.
+
+**Per-level table** (autopilot seconds from the e2e run; the unit run differs by < 0.2 s because the
+live loop steps a few frames before the fast-forward starts; respawns are 0 everywhere in both)
+
+| #   | Level            | Length  | Max slope | Min radius | Checkpoints | Tiny s | Big kid s | Tiny tris / draws | Big kid tris / draws |
+| --- | ---------------- | ------- | --------- | ---------- | ----------- | ------ | --------- | ----------------- | -------------------- |
+| 1   | Meadow Roll      | 83.0 m  | 0.0       | 14.6 m     | 3           | 23.7   | 17.7      | 12 372 / 11       | 11 940 / 11          |
+| 2   | Little Hills     | 90.3 m  | 10.3      | 13.7 m     | 4           | 26.1   | 19.7      | 12 448 / 12       | 12 100 / 12          |
+| 3   | Seaside Sweep    | 100.0 m | 0.0       | 13.7 m     | 4           | 28.3   | 21.2      | 13 822 / 11       | 12 298 / 11          |
+| 4   | Up in the Clouds | 100.9 m | 16.7      | 13.6 m     | 4           | 28.1   | 21.0      | 13 186 / 11       | 12 714 / 11          |
+| 5   | Zigzag Beach     | 110.0 m | 0.0       | 13.7 m     | 4           | 31.8   | 23.7      | 15 566 / 12       | 14 998 / 12          |
+| 6   | Big Sky Finale   | 117.3 m | 10.3      | 13.6 m     | 5           | 32.6   | 24.4      | 17 290 / 12       | 16 186 / 12          |
+
+Slope is the steepest frame-to-frame slope in degrees (rule 2 allows 20); radius is the tightest plan
+view turning radius the validator sees (rule 3 needs >= 6 Tiny / 3.5 Big kid; rule 5 needs >= 12 near
+posts). Balloons (Tiny / Big kid): 8/5, 7/4, 12/6, 10/5, 9/4, 14/5, all popped by the autopilot (it
+only follows the centreline). Tiny autopilot speed at bumps: 2.9-3.0 m/s; Big kid 3.7-4.3 m/s (its flat
+terminal speed). Fastest points: the level 4 descent (Tiny 5.4, Big kid 6.8 m/s) and level 6 downhill
+(Tiny 4.7, Big kid 5.7); no bump or post is on or within 10 m after either.
+
+**Skipped and why**
+
+- Nothing from Phase 3. Not touched, as instructed: `App.ts`, screens, persistence, CSS, `main.ts`,
+  `tt.ts`. "e2e green in CI" is still local-only (no repo yet, see Phase 0).
+
+**PENDING HUMAN**
+
+- PENDING HUMAN: Phase 3b tuning pass. Play all six levels on the oldest iPad in both tiers, the
+  3-year-old on Tiny, adjust `tuning.ts` and record before / after and observations per level here.
+  Specifically look at: (a) Tiny feel of the early bump (level 2 at 6 m) and balloon density, (b) Big
+  kid bump speed (4+ m/s, above the plan's 4 m/s comfort figure), (c) the parking rule: does a lifted
+  finger on a ramp feel like "brake", (d) camera vs the gate banner on level 4, (e) camera under the
+  checkpoint arch at 11 m of level 4 (the track starts climbing at 12 m), (f) the level 4 and 6
+  downhills at Big kid speed, (g) level 3 with no kerb on the final straight (Big kid), (h) pillars
+  inside the bends of levels 5 and 6.
+- PENDING HUMAN (carried over): Phase 1b / 2 hand-feel, moving the project to
+  `aidigitallabs/tumble-trail`, CI green there, Pages URL on an iPad.
+
+**Look at next**
+
+- Phase 4 should list `shippedLevels` (not `levels`) in the level select; `levels` still ends with
+  `levelTest`.
+- Autopilot times are a completability proxy: a 3-year-old will take 1-3 min on a 25-32 s Tiny run.
+- The Tiny levels are not harder than each other by construction (one new thing each); if the iPad
+  pass wants a difficulty curve, widen the Big kid obstacle set rather than Tiny's.
+- Rule 3's radius check is noisy to about 1 m on a ~15 m arc (frame spacing 0.5 m); a design radius
+  of 15 measures >= 13.6. If a later level needs tighter turns with posts, raise the frame sampling
+  for the radius estimate rather than the level.
+
+**Plan inconsistencies found (plan not changed)**
+
+- Appendix B level 5: "pillars on the outside of each turn" and "radius >= 10" cannot both pass
+  rule 5 (posts >= 4 m from any radius < 12 m); resolved with 15 m turns, pillars in the turns.
+  Level 3's "radius >= 12" is at exactly rule 5's limit, so the measured 12.x dips of a 13 m design
+  would fail near a gate; the sweep is 15 m.
+- Appendix B level 4 ("1 gate on the plateau") plus section 7's no-clipping guarantee: the gate
+  banner needs flat track after it; the plan does not say so (the lead's brief did: 8 m; shipped 10).
+- Section 5 says a bump is "safe at <= 4 m/s"; the Big kid tier runs at 4.1-4.3 m/s on the flat
+  (terminal 4.95) so every Big kid bump is above it. Nothing broke in the autopilot runs.
+- Section 6 says the brake makes the ball "hold on ramps"; it takes the parking rule to actually do so.
+- Section 13 e2e #2 (`celebrating`) vs Phase 3's `finished`: kept `finished`, as in earlier phases.
+- Section 13 e2e #2/#3 do not provide a way to count respawns; `__tt` has no counter.

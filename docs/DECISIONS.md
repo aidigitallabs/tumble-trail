@@ -243,3 +243,66 @@ measured in the current frame's right) / (width / 4)`; both constants are in `tu
   19 / 41 / 62 / 84 (offsets 0, 0.4, -0.4, 0 so the autopilot's centreline pops them all), Big kid only:
   pillars at 8 m (+0.9) and 68.5 m (-0.9), a gate at 46 m. They sit on the only places that satisfy the
   validator: flat, straight, away from the S-bend (radius under 12 m up to about 42 m) and the ramps.
+
+## 31 Oct 2026 — Phase 3 decisions
+
+**Parking rule (task 0)**
+
+- `tuning.ball.parkSpeed = 0.6` m/s. While not driving, if the ball's speed _along the track surface_
+  (the tangent and sideways components, from the nearest frame) is below it, those components and the
+  angular velocity are zeroed at the end of `Ball.applyControls`, on top of the existing brake damping.
+  The component along the frame's `up` is kept: zeroing the full velocity would also freeze a ball
+  that is dropping onto the track (the 1 m spawn / respawn lift, with gravity adding 0.16 m/s per
+  step), leaving it hovering until the child touches the screen. Measured on `levelTest`'s 15 degree
+  ramp: released mid-ramp, the ball is below `parkSpeed` within 2 s (both tiers) and then does not
+  move (arc mark range 0 over the next 6 s). A side effect worth knowing: a parked ball also cannot
+  drift sideways to the centre (the lane force is under 0.6 m/s per step), which is right for
+  "finger up = hold still".
+
+**Levels**
+
+- **Authoring helper `src/levels/path.ts`** (not in PLAN section 4's file list; new file, so no
+  conflict with the parallel Phase 4 work). `buildPath(segments, ramps)` turns `straight(m)`,
+  `arc(degrees, radius)` (positive = right) and height `ramp(from, to, rise)` into plain
+  Catmull-Rom control points, every <= 2.5 m. `arc` eases the curvature in and out over 3 m (a
+  clothoid-like join) because a hard straight-to-circle join makes the spline's turning radius
+  spike to about 0.8 x the design radius at the join (10.8 m on a 13 m arc), which trips rule 5.
+  Eased arcs are 3 m longer than `angle x radius`; `toLength(total, segs)` appends the closing
+  straight so a level's length is stated once. Ramps use a constant slope with sin^2 ease edges.
+  The levels still ship as `LevelDef`s with plain point lists; nothing at runtime knows about it.
+- **Level 3 sweep radius 15 m, level 5 turn radius 15 m** (briefs: >= 12 and >= 10; the lead asked
+  for >= 13). The measured radius of the spline's frames (what rule 5 sees) is within about 1.3 m
+  of the design radius, so a design radius of 15 measures >= 13.6 and clears rule 5's 12 m with
+  margin. For level 5 this resolves the known tension the way the brief literally says: the three
+  Big kid pillars stand in the turns, on the outside (right turn -> offset -0.9, left turn -> +0.9,
+  right -> -0.9), rather than on the straights after them. Length is 110 m, so the preference for
+  <= 120 m is met either way. Level 6's S-bend and sweep are radius 15 too, so its pillars (two in
+  the S-bend, one in the sweep) are legal for the same reason.
+- **Level 4**: the gate is at 56 m, the plateau stays flat until the ramp down at 66 m (10 m of flat
+  after the gate, the lead asked for >= 8), the wiggle ends at 52 m (4 m before the gate), and the
+  Big kid pillar is at 92 m, 10 m after the descent ends (82 m). Ramps are 15 degrees in the middle
+  (the spline overshoots to 16.7 at the ease edges; rule 2 allows 20).
+- **Level 2 humps are 1.0 m high over 20 m** (steepest 10.3 degrees measured; the brief says <= 12,
+  and a 1.2 m hump measured 12.7).
+- **Level 6** is 117.3 m (S-bend, hump, sweep, 28 m of 6.5 degree downhill). All posts and bumps
+  stand before 88 m; the Tiny-only bump at 9 m exists so Tiny gets one early; nothing sits on the
+  downhill. 5 checkpoints (the brief only caps the stretch at 30 m).
+- **Downhill speed and bumps**: bumps are on flat track with no descent steeper than 2 degrees in
+  the 12 m before them (a unit test, not just a one-off measurement). Autopilot speed at every bump,
+  Tiny: 2.9-3.0 m/s (limit given 4.5). Big kid is 3.7-4.3 m/s there; that is its flat terminal
+  speed (4.95), not a downhill effect, and the autopilot gets over them with no respawn and (checked once,
+  with the contact events) no wall, pillar or gate contact on any level. The plan's "safe at <= 4 m/s" is therefore marginally exceeded by Big kid bumps; left
+  for the iPad pass (3b) rather than removed.
+- **Obstacle tiers**: balloons are in both tiers (the brief: "also present in Big kid"), with the
+  denser extras Tiny-only; bumps are in both tiers except the early one in level 6; pillars and
+  gates are Big kid only (rule 5). Tiny never has an obstacle that is not a bump or a balloon.
+- **Checkpoints**: 3 (level 1) to 5 (level 6), every one at least 3 m from every obstacle (rule 5).
+- **Registry**: `levels` is now the six shipped levels followed by `levelTest`; `shippedLevels` and
+  `testLevels` are exported separately for the level select (Phase 4 should list `shippedLevels`).
+  The Phase 1a registry test asserted `levels[0] === levelTest`; it now asserts `levels.at(-1)`
+  (the reason for the edit is the new order, not a weaker check).
+- **`bigkidLevelSeconds`** already existed in `tuning.ts` as `[12, 60]`; unchanged.
+- **E2E respawn count**: `__tt` has no respawn counter (and `tt.ts` / `App.ts` are not mine to
+  edit this session), so `levels.spec.ts` fast-forwards in 0.25 s slices inside one `evaluate`
+  and counts a respawn whenever the ball moves more than 4 m in a slice (top speed is 7 m/s). The
+  exact respawn count is asserted in the unit tests (`GameWorld.respawnCount`).

@@ -133,8 +133,9 @@ describe('validateLevel rule 1', () => {
 });
 
 describe('registry', () => {
-  it('is ordered, unique and contains levelTest', () => {
-    expect(levels[0]).toBe(levelTest);
+  it('is ordered (the six shipped levels, then levelTest), unique and contains levelTest', () => {
+    // Phase 3 put levelTest after the shipped levels; it was levels[0] while it was the only one.
+    expect(levels.at(-1)).toBe(levelTest);
     expect(new Set(levels.map((l) => l.id)).size).toBe(levels.length);
     expect(getLevel('levelTest')).toBe(levelTest);
     expect(getLevel('nope')).toBeUndefined();
