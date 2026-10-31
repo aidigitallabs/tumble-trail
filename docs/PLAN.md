@@ -170,8 +170,8 @@ export interface LevelDef {
 | kind | Geometry | Collider | Notes |
 |---|---|---|---|
 | `bump` | Sinusoidal ridge, height 0.2 m, 1.2 m along the track, spans `width/3` centred at `offset` | Trimesh (same verts) | A "whee" moment. Safe at ≤ 4 m/s with 1.5 m walls. |
-| `pillar` | Cylinder r 0.4 m, h 2.0 m, with a 0.3 m conical skirt at the base | `roundCylinder` | Validator: `|offset| ≥ 1.2` and `|offset| ≤ width/2 − 0.9`. |
-| `gate` | Two pillars at `offset ± 1.4` plus a **visual-only banner at 6 m** height | Two `roundCylinder` | No lintel collider; the camera (≤ 5 m high) never hits anything. |
+| `pillar` | Cylinder r 0.4 m, h 2.0 m, with a 0.3 m conical skirt at the base | `roundCylinder` | Validator: `0.6 ≤ |offset| ≤ width/2 − 0.2` for every tier it applies to (so the wide side always leaves ≥ 1.6 m for the 1 m ball). |
+| `gate` | Two pillars at `offset ± 1.1` plus a **visual-only banner at 6 m** height | Two `roundCylinder` | Opening between post surfaces = 1.4 m. Validator: `|offset| + 1.1 + 0.4 ≤ width/2` (on a 3.5 m track only `offset = 0`). No lintel collider; the camera never hits anything. |
 | `balloon` | Sphere r 0.5 m floating 1.2 m above the floor on a thin string | **None** (distance check from the ball each step; pop when < 1.1 m) | Pop = scale-burst + 6 confetti quads + sound. Not counted, not required. |
 
 **Walls / kerbs**
@@ -188,14 +188,15 @@ Walls are omitted for the final 2 m before the finish line so the finish arch is
 1. ≥ 4 control points; consecutive points ≥ 2 m apart; arc length 80–120 m.
 2. Max slope between consecutive frames ≤ 20°.
 3. Turning radius ≥ 1.0 × tier width (checked per tier) and no wall ribbon self-intersection.
-4. Checkpoints ≥ 1 and spacing ≤ 30 m; first ≥ 10 m, last ≤ finishM − 10 m.
+4. Checkpoints ≥ 1; every stretch (start→first, between, last→finish) ≤ 30 m; first ≥ 10 m, last ≤ finishM − 10 m.
 5. Obstacles inside `[5 m, finishM − 8 m]`; pillar/gate offsets per the table; no obstacle within 3 m of a checkpoint; Tiny tier may only contain `bump` and `balloon`; pillars/gates must not be on a slope > 8° nor within 4 m of a frame whose turning radius < 12 m.
 6. `noWallSpansM` only on frames with radius > 30 m.
-7. Balloons: ≥ 1 per 25 m of track in Tiny.
+7. Balloons: in Tiny, no stretch of track (start/finish included) longer than 25 m without a balloon.
 
 ### Track generation (`Track.ts`)
 - `buildRibbonGeometry(frames, width, wallMode, noWallSpans)` is **pure** (no Rapier) and returns `{ floor: BufferGeometry, walls: BufferGeometry }`. Triangles wound **CCW seen from above** for the floor, outward-facing for walls.
 - `buildColliders(world, geoms)` makes two fixed `TriMesh` colliders with `TriMeshFlags.FIX_INTERNAL_EDGES` from day 1; walls friction 0, restitution 0.3; floor friction 0.8.
+- `buildRibbonGeometry` also takes `{ finishM, colors }`; walls are thin 0.3 m prisms (both faces) outside the playable width.
 - A **catch plane** 10 m below the lowest frame triggers respawn as a last resort.
 
 ---
@@ -237,7 +238,7 @@ With frame `f` from `Progress`, `vTan = dot(v, f.tangent)`, `vLat = dot(v, f.rig
 | width | 6.0 | 3.5 |
 | driveMode | always | hold |
 | drive (N) | 8 | 10 |
-| maxSpeed (m/s) | 4.0 | 5.5 |
+| maxSpeed (m/s) — a cap on the drive term, not a reachable speed; terminal speeds with damping 0.2 are ≈ 3.6 / 5.0 | 4.0 | 5.5 |
 | maxLateral (m/s) | 2.5 | 4.0 |
 | laneGain (1/s) | 2.0 | 3.0 |
 | steerGain | 3 | 4 |
@@ -528,9 +529,9 @@ All levels: start pad, finish arch, checkpoints every ≤ 30 m, balloons every �
 
 | # | Name | Palette | Length | Shape | Tiny "new thing" | Big kid extras |
 |---|---|---|---|---|---|---|
-| 1 | Meadow Roll | meadow | 80 m | Straight → wide S-bend → straight. Flat. | Balloons | Kerbs; 1 pillar at offset +1.2 |
-| 2 | Little Hills | meadow | 90 m | Two gentle humps (≤ 12°) with a curve between | Bumps (2, centred) | Kerbs; 2 pillars alternating ±1.2 |
+| 1 | Meadow Roll | meadow | 80 m | Straight → wide S-bend → straight. Flat. | Balloons | Kerbs; 1 pillar at offset +0.9 |
+| 2 | Little Hills | meadow | 90 m | Two gentle humps (≤ 12°) with a curve between | Bumps (2, centred) | Kerbs; 2 pillars alternating ±0.9 |
 | 3 | Seaside Sweep | beach | 100 m | Long 150° sweep (radius ≥ 12 m) then a straight | Lots of balloons in the curve | Kerb none on the final straight; 1 gate |
 | 4 | Up in the Clouds | sky | 100 m | Ramp up 15°, plateau with a wiggle, ramp down 15° | Balloons on the plateau | Kerbs; 1 gate on the plateau; 1 pillar after the descent |
-| 5 | Zigzag Beach | beach | 110 m | Three alternating 70° turns (radius ≥ 10 m) with straights | Bumps on the straights | Kerbs everywhere; pillars on the *outside* of each turn, offset ±1.3 |
+| 5 | Zigzag Beach | beach | 110 m | Three alternating 70° turns (radius ≥ 10 m) with straights | Bumps on the straights | Kerbs everywhere; pillars on the *outside* of each turn, offset ±0.9 |
 | 6 | Big Sky Finale | sky | 120 m | S-bend, hump, sweep, long gentle downhill to the finish | Everything, lots of balloons | Kerbs; 1 gate, 3 pillars, no `none` spans |
