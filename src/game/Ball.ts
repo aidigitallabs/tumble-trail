@@ -36,6 +36,12 @@ export class Ball {
   visualScale = 1;
   /** Consecutive physics steps spent driving at less than `stuckSpeed`. */
   stuckSteps = 0;
+  /**
+   * Render-only squash in WORLD axes (landing effect, PLAN section 16). Set by `Effects` in the
+   * render step; (1, 1, 1) = none. The sphere keeps its floor contact: the centre drops by the
+   * amount the bottom would otherwise rise.
+   */
+  readonly squash = new THREE.Vector3(1, 1, 1);
 
   private readonly body0: THREE.Mesh;
   private readonly outline: THREE.Mesh;
@@ -47,6 +53,10 @@ export class Ball {
   private readonly shadowNormal = new THREE.Vector3();
   private readonly zAxis = new THREE.Vector3(0, 0, 1);
   private readonly dt = 1 / tuning.physicsHz;
+  private readonly tmpMatrix = new THREE.Matrix4();
+  private readonly tmpSquash = new THREE.Matrix4();
+  private readonly tmpScale = new THREE.Vector3();
+  private readonly tmpPos = new THREE.Vector3();
 
   constructor(
     private readonly world: RAPIER.World,
@@ -265,8 +275,25 @@ export class Ball {
   applyRender(alpha: number): void {
     this.group.position.lerpVectors(this.prevPos, this.currPos, alpha);
     this.group.quaternion.slerpQuaternions(this.prevQuat, this.currQuat, alpha);
-    this.group.scale.setScalar(Math.max(0.0001, this.visualScale));
+    const scale = Math.max(0.0001, this.visualScale);
+    this.group.scale.setScalar(scale);
     this.group.visible = this.visualScale > 0.001;
+
+    const q = this.squash;
+    if (q.x === 1 && q.y === 1 && q.z === 1) {
+      this.group.matrixAutoUpdate = true;
+      return;
+    }
+    // Squash in world axes: M = T * S_world * R * uniform. `group.position` etc. stay the plain
+    // transform (the camera and shadow read them); only the matrix three.js draws with differs.
+    this.group.matrixAutoUpdate = false;
+    this.tmpScale.setScalar(scale);
+    this.tmpMatrix.compose(this.tmpPos.set(0, 0, 0), this.group.quaternion, this.tmpScale);
+    this.tmpMatrix.premultiply(this.tmpSquash.makeScale(q.x, q.y, q.z));
+    const p = this.group.position;
+    this.tmpMatrix.setPosition(p.x, p.y - tuning.ball.radius * scale * (1 - q.y), p.z);
+    this.group.matrix.copy(this.tmpMatrix);
+    this.group.matrixWorldNeedsUpdate = true;
   }
 
   /**
