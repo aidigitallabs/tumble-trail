@@ -39,14 +39,14 @@ git push git@github.com:aidigitallabs/tumble-trail.git tumble-trail-main:main
 
 ## What was verified by the agents (headless, no real iPad)
 
-| Check | Result |
-|---|---|
-| Lint / typecheck / build | ✅ |
-| Unit tests | ✅ 324 |
+| Check                                | Result                                                                   |
+| ------------------------------------ | ------------------------------------------------------------------------ |
+| Lint / typecheck / build             | ✅                                                                       |
+| Unit tests                           | ✅ 324                                                                   |
 | End-to-end (Playwright, SwiftShader) | ✅ 36 incl. autopilot completing all 6 levels in both tiers with 0 falls |
-| Triangles / draw calls per level | ✅ ≤ 17 300 / 12 (budget 40 000 / 40) |
-| Bundle (gzipped) | ✅ 1.83 MB (budget 2.4 MB; Rapier physics is 1.65 MB of it) |
-| Code review pass on the engine | ✅ 6 findings, all fixed with tests |
+| Triangles / draw calls per level     | ✅ ≤ 17 300 / 12 (budget 40 000 / 40)                                    |
+| Bundle (gzipped)                     | ✅ 1.83 MB (budget 2.4 MB; Rapier physics is 1.65 MB of it)              |
+| Code review pass on the engine       | ✅ 6 findings, all fixed with tests                                      |
 
 ## PENDING HUMAN — needs you and an iPad (`docs/IPAD_CHECKLIST.md`)
 
