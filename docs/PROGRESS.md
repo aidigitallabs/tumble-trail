@@ -398,6 +398,7 @@ terminal speed). Fastest points: the level 4 descent (Tiny 5.4, Big kid 6.8 m/s)
 - Section 6 says the brake makes the ball "hold on ramps"; it takes the parking rule to actually do so.
 - Section 13 e2e #2 (`celebrating`) vs Phase 3's `finished`: kept `finished`, as in earlier phases.
 - Section 13 e2e #2/#3 do not provide a way to count respawns; `__tt` has no counter.
+
 ## 31 Oct 2026 — Phase 4: screens, flow, persistence, parent gate
 
 **Done**

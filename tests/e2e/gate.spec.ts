@@ -170,7 +170,8 @@ test('parent menu: sound flag, low graphics (persist + reload), setup help, rese
   await page.mouse.move(track.x + track.width, cy, { steps: 12 });
   await page.mouse.up();
   const after = await storedSave(page);
-  expect(after.balls[0]).toMatchObject({ unlocked: 1, currentLevel: 0, stars: {} });
+  expect(after.balls[0]).toMatchObject({ unlocked: 1, currentLevel: 0 });
+  expect(Object.keys(after.balls[0]?.stars ?? { x: 1 })).toHaveLength(0);
   expect(after.balls[0]?.tier).toBe('tiny'); // the tier survives a progress reset
 
   // Low graphics persists and reloads the page.

@@ -306,6 +306,7 @@ measured in the current frame's right) / (width / 4)`; both constants are in `tu
   edit this session), so `levels.spec.ts` fast-forwards in 0.25 s slices inside one `evaluate`
   and counts a respawn whenever the ball moves more than 4 m in a slice (top speed is 7 m/s). The
   exact respawn count is asserted in the unit tests (`GameWorld.respawnCount`).
+
 ## 31 Oct 2026 — Phase 4 decisions
 
 - **New files** (not in PLAN section 4): `flow.ts` (pure state-machine transition table, unit tested),

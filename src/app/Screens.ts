@@ -471,6 +471,8 @@ export class Screens {
   // ---- reset slider ------------------------------------------------------------------------------
 
   private wireSlider(): void {
+    // The whole track accepts the press (a finger that lands beside the thumb, or a thumb
+    // still snapping back from an earlier short drag, must not make the slider dead).
     let pointer: number | null = null;
     let startX = 0;
     let travel = 1;
@@ -479,19 +481,19 @@ export class Screens {
       this.thumb.style.transform = `translateX(${dx}px)`;
       return dx / travel;
     };
-    this.thumb.addEventListener('pointerdown', (e) => {
+    this.slider.addEventListener('pointerdown', (e) => {
       if (pointer !== null) return;
       pointer = e.pointerId;
       startX = e.clientX;
       travel = Math.max(1, this.slider.clientWidth - this.thumb.offsetWidth);
       this.thumb.classList.remove('snap');
       try {
-        this.thumb.setPointerCapture(e.pointerId);
+        this.slider.setPointerCapture(e.pointerId);
       } catch {
         // Synthetic pointers may not be capturable; move / up still arrive on the thumb.
       }
     });
-    this.thumb.addEventListener('pointermove', (e) => {
+    this.slider.addEventListener('pointermove', (e) => {
       if (e.pointerId === pointer) move(e);
     });
     const end = (e: PointerEvent): void => {
@@ -506,8 +508,8 @@ export class Screens {
         window.setTimeout(() => this.slider.classList.remove('done'), 1200);
       }
     };
-    this.thumb.addEventListener('pointerup', end);
-    this.thumb.addEventListener('pointercancel', (e) => {
+    this.slider.addEventListener('pointerup', end);
+    this.slider.addEventListener('pointercancel', (e) => {
       if (e.pointerId !== pointer) return;
       pointer = null;
       this.thumb.classList.add('snap');

@@ -21,7 +21,7 @@ for (const id of LEVELS) {
       page.on('pageerror', (err) => errors.push(`pageerror: ${err.message}`));
 
       await page.goto('/');
-      await page.waitForFunction(() => window.__tt?.state === 'playing', undefined, {
+      await page.waitForFunction(() => window.__tt?.state === 'title', undefined, {
         timeout: 30_000,
       });
 
