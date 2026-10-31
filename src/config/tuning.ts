@@ -382,6 +382,35 @@ export const tuning = {
     shadowFadePerM: 0.18,
   },
 
+  /** Screens, flow and the parent gate (PLAN section 8). Phase 4. */
+  ui: {
+    /** Minimum size of anything a child may press (CSS px, PLAN section 8). */
+    playTargetPx: 160,
+    /** Minimum size of parent-side controls. */
+    parentTargetPx: 88,
+    /** The title's huge play button. */
+    playButtonPx: 240,
+    /** Parent gate: hold both opposite corners this long... */
+    gateHoldSeconds: 3,
+    /** ...with each pointer within this distance of its corner. */
+    gateCornerRadiusPx: 120,
+    /** Celebrating: all input ignored for this long, then Finished. */
+    celebrationSeconds: 3,
+    /** Idle hand hint: seconds without input before it sweeps again (level start counts as idle). */
+    idleHintSeconds: { tiny: 4, bigkid: 8 },
+    /** One sweep of the hand across the sky, seconds (CSS animation duration). */
+    hintSweepSeconds: 2.4,
+    /** Finished: delay between one star lighting up and the next, ms. */
+    starStepMs: 380,
+    /** The reset slider confirms when the thumb passes this fraction of its travel. */
+    resetConfirmFraction: 0.92,
+    /** Parent menu FPS readout refresh, ms. */
+    fpsRefreshMs: 500,
+    /** Confetti pieces in the CSS burst (placeholder until Phase 5), and for the final level. */
+    confettiPieces: 36,
+    finalConfettiPieces: 80,
+  },
+
   /** Autopilot (PLAN section 13). */
   autopilot: {
     /** Look this far ahead along the track for the curve-anticipation term, metres. */

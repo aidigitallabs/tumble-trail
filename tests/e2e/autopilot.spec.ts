@@ -16,7 +16,7 @@ for (const tier of ['tiny', 'bigkid'] as const) {
     page.on('pageerror', (err) => errors.push(`pageerror: ${err.message}`));
 
     await page.goto('/');
-    await page.waitForFunction(() => window.__tt?.state === 'playing', undefined, {
+    await page.waitForFunction(() => window.__tt?.state === 'title', undefined, {
       timeout: 30_000,
     });
 
@@ -72,11 +72,12 @@ test('fastForward stops early at `until` and leaves a finished level finished', 
   page,
 }) => {
   await page.goto('/');
-  await page.waitForFunction(() => window.__tt?.state === 'playing', undefined, {
+  await page.waitForFunction(() => window.__tt?.state === 'title', undefined, {
     timeout: 30_000,
   });
-  const r = await page.evaluate(() => {
+  const r = await page.evaluate(async () => {
     const tt = window.__tt;
+    await tt.loadLevel('levelTest');
     tt.autopilot = true;
     const first = tt.fastForward(5); // not finished after 5 s
     const done = tt.fastForward(120, 'finished');

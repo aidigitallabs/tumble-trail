@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-test('boots into levelTest, renders with WebGL, simulates physics, and installs as a PWA', async ({
+test('boots to the title, renders with WebGL, simulates physics, and installs as a PWA', async ({
   page,
   request,
 }) => {
@@ -13,9 +13,8 @@ test('boots into levelTest, renders with WebGL, simulates physics, and installs 
 
   await page.goto('/');
 
-  // Phase 1b boots straight into levelTest: boot -> playing once RAPIER.init(), the renderer and
-  // the level are ready.
-  await page.waitForFunction(() => window.__tt?.state === 'playing', undefined, {
+  // Phase 4: boot -> title once RAPIER.init(), the renderer and the backdrop level are ready.
+  await page.waitForFunction(() => window.__tt?.state === 'title', undefined, {
     timeout: 30_000,
   });
 
@@ -23,10 +22,11 @@ test('boots into levelTest, renders with WebGL, simulates physics, and installs 
   const rendererString = await page.evaluate(() => window.__tt.app.rendererString);
   expect(rendererString).toBeTruthy();
 
-  // The loading screen has been dismissed.
+  // The loading screen has been dismissed and the title is up.
   await expect(page.locator('#loading')).toHaveClass(/hidden/);
+  await expect(page.getByTestId('screen-title')).toBeVisible();
 
-  // Physics ran: Tiny always rolls, so the ball makes progress along the track by itself.
+  // Physics ran: the title's backdrop autopilot rolls the demo ball along the track.
   await page.waitForFunction(() => window.__tt.ball().t > 1.5, undefined, { timeout: 30_000 });
   const ball = await page.evaluate(() => window.__tt.ball());
   expect(ball.pos[1]).toBeGreaterThan(0.3);

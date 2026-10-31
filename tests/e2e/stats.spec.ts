@@ -7,7 +7,7 @@ const MAX_DRAW_CALLS = 40;
 for (const tier of ['tiny', 'bigkid'] as const) {
   test(`stats() within the performance budget (levelTest, ${tier})`, async ({ page }) => {
     await page.goto('/');
-    await page.waitForFunction(() => window.__tt?.state === 'playing', undefined, {
+    await page.waitForFunction(() => window.__tt?.state === 'title', undefined, {
       timeout: 30_000,
     });
     await page.evaluate(async (t) => {

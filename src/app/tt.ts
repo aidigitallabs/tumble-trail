@@ -12,9 +12,12 @@ export interface TTStats {
 
 export interface TT {
   readonly state: TTState;
-  /** Applies on the next `loadLevel`. */
+  /** Applies on the next `loadLevel`. Does not touch the save (the parent menu does that). */
   setTier(t: Tier): void;
-  /** Resolves when the physics world and track are built and `state === 'playing'`. */
+  /**
+   * Resolves when the physics world and track are built and `state === 'playing'`. Bypasses the
+   * title, the celebration and any open parent menu (test hook).
+   */
   loadLevel(id: string): Promise<void>;
   autopilot: boolean;
   /**
@@ -26,6 +29,8 @@ export interface TT {
   /** From `renderer.info`, i.e. the last rendered frame. */
   stats(): TTStats;
   trackWidth(): number;
+  /** Id of the loaded level ('' before the first one). */
+  levelId(): string;
   /** Balloons in the loaded level for the current tier, and how many are popped. */
   balloons(): { total: number; popped: number };
   /** How many obstacles of each kind the loaded level has for the current tier. */
@@ -56,6 +61,7 @@ export interface TTHost {
   fastForward(maxSeconds: number, until?: TTState): { state: TTState; seconds: number };
   stats(): TTStats;
   trackWidth(): number;
+  levelId(): string;
   balloons(): { total: number; popped: number };
   obstacles(): Record<'bump' | 'pillar' | 'gate' | 'balloon', number>;
   ballState(): ReturnType<TT['ball']>;
@@ -74,6 +80,7 @@ export function bootTT(): TT {
     fastForward: notReady,
     stats: () => ({ triangles: 0, drawCalls: 0, fps: 0 }),
     trackWidth: () => 0,
+    levelId: () => '',
     balloons: () => ({ total: 0, popped: 0 }),
     obstacles: () => ({ bump: 0, pillar: 0, gate: 0, balloon: 0 }),
     ball: () => ({ pos: [0, 0, 0], vel: [0, 0, 0], t: 0, lateral: 0 }),
@@ -98,6 +105,7 @@ export function createTT(host: TTHost): TT {
     fastForward: (s, until) => host.fastForward(s, until),
     stats: () => host.stats(),
     trackWidth: () => host.trackWidth(),
+    levelId: () => host.levelId(),
     balloons: () => host.balloons(),
     obstacles: () => host.obstacles(),
     ball: () => host.ballState(),
