@@ -26,6 +26,10 @@ export interface TT {
   /** From `renderer.info`, i.e. the last rendered frame. */
   stats(): TTStats;
   trackWidth(): number;
+  /** Balloons in the loaded level for the current tier, and how many are popped. */
+  balloons(): { total: number; popped: number };
+  /** How many obstacles of each kind the loaded level has for the current tier. */
+  obstacles(): Record<'bump' | 'pillar' | 'gate' | 'balloon', number>;
   ball(): {
     pos: [number, number, number];
     vel: [number, number, number];
@@ -52,6 +56,8 @@ export interface TTHost {
   fastForward(maxSeconds: number, until?: TTState): { state: TTState; seconds: number };
   stats(): TTStats;
   trackWidth(): number;
+  balloons(): { total: number; popped: number };
+  obstacles(): Record<'bump' | 'pillar' | 'gate' | 'balloon', number>;
   ballState(): ReturnType<TT['ball']>;
 }
 
@@ -68,6 +74,8 @@ export function bootTT(): TT {
     fastForward: notReady,
     stats: () => ({ triangles: 0, drawCalls: 0, fps: 0 }),
     trackWidth: () => 0,
+    balloons: () => ({ total: 0, popped: 0 }),
+    obstacles: () => ({ bump: 0, pillar: 0, gate: 0, balloon: 0 }),
     ball: () => ({ pos: [0, 0, 0], vel: [0, 0, 0], t: 0, lateral: 0 }),
     app: { rendererString: null },
   };
@@ -90,6 +98,8 @@ export function createTT(host: TTHost): TT {
     fastForward: (s, until) => host.fastForward(s, until),
     stats: () => host.stats(),
     trackWidth: () => host.trackWidth(),
+    balloons: () => host.balloons(),
+    obstacles: () => host.obstacles(),
     ball: () => host.ballState(),
     app: { rendererString: host.rendererString },
   };

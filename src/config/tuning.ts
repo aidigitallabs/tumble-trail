@@ -47,6 +47,8 @@ export interface TierTuning {
   brakeDamping: number;
   /** Metres below the current frame at which the ball counts as fallen. */
   fallDepth: number;
+  /** Default wall mode when the level does not say otherwise (PLAN section 5): tiny 'full', bigkid 'low'. */
+  wallMode: 'full' | 'low';
   cameraBack: number;
   cameraUp: number;
   cameraLookAhead: number;
@@ -79,6 +81,7 @@ export const tuning = {
       steerDecay: 1.0,
       brakeDamping: 2.5,
       fallDepth: 6,
+      wallMode: 'full',
       cameraBack: 7,
       cameraUp: 4,
       cameraLookAhead: 4,
@@ -96,6 +99,7 @@ export const tuning = {
       steerDecay: 0,
       brakeDamping: 2.5,
       fallDepth: 6,
+      wallMode: 'low',
       cameraBack: 7,
       cameraUp: 4,
       cameraLookAhead: 5,
@@ -151,8 +155,6 @@ export const tuning = {
     frameSpacingM: 0.5,
     /** Straight, flat track appended beyond the last control point (the actual pad is at least this long). */
     endPadM: 6,
-    /** CatmullRomCurve3 tension for the centripetal type. */
-    tension: 0.5,
   },
 
   /** Track ribbon geometry (PLAN sections 5 and 9). */
@@ -167,6 +169,9 @@ export const tuning = {
     stripeWidthM: 0.4,
     stripeDashM: 1.5,
     stripeGapM: 1.5,
+    /** Start pad: diameter (m) of the flat disc under frame 0, and its fan resolution. */
+    startPadDiameterM: 3,
+    startPadSegments: 16,
     /** Collider materials (PLAN section 5). Walls are frictionless so the ball slides along them. */
     floorFriction: 0.8,
     floorRestitution: 0,
@@ -180,12 +185,148 @@ export const tuning = {
     windowFrames: 20,
   },
 
-  /** validateLevel rule 1 (PLAN section 5). Later rules arrive in Phase 2. */
+  /** validateLevel (PLAN section 5, rules 1-7). */
   validation: {
+    // Rule 1
     minPoints: 4,
     minPointSpacingM: 2,
     minLengthM: 80,
     maxLengthM: 120,
+    // Rule 2
+    maxSlopeDeg: 20,
+    // Rule 3: turning radius >= minRadiusPerWidth x tier width; parts of the track further apart
+    // than selfIntersectMinArcWidths x width (along the arc) must not overlap in plan view.
+    minRadiusPerWidth: 1.0,
+    selfIntersectMinArcWidths: 3.2,
+    // Rule 4
+    checkpointFirstMinM: 10,
+    checkpointLastBeforeFinishM: 10,
+    maxCheckpointStretchM: 30,
+    // Rule 5
+    obstacleMinAtM: 5,
+    obstacleMaxBeforeFinishM: 8,
+    obstacleCheckpointClearM: 3,
+    pillarMinOffsetM: 0.6,
+    pillarEdgeMarginM: 0.2,
+    postMaxSlopeDeg: 8,
+    /** Slope is checked on frames within this many metres of a pillar / gate. */
+    postSlopeWindowM: 1,
+    postMinRadiusM: 12,
+    /** Turning radius is checked on frames within this many metres of a pillar / gate. */
+    postRadiusWindowM: 4,
+    balloonEdgeMarginM: 0.5,
+    // Rule 6
+    noWallMinRadiusM: 30,
+    // Rule 7
+    tinyMaxBalloonGapM: 25,
+  },
+
+  /** Obstacle dimensions (PLAN section 5: fixed) and the small amount of detail around them. */
+  obstacles: {
+    bump: {
+      heightM: 0.2,
+      lengthM: 1.2,
+      /** Spans this fraction of the track width. */
+      spanFraction: 1 / 3,
+      segmentsAlong: 12,
+      segmentsAcross: 8,
+      /** The ridge's base sits this far below the floor so it never leaves a visible seam. */
+      sinkM: 0.03,
+      /** The ridge's lateral ends ease down over this distance (no sharp step for the ball). */
+      edgeTaperM: 0.25,
+    },
+    pillar: {
+      radiusM: 0.4,
+      heightM: 2.0,
+      /** The conical skirt reaches this far out from the post. */
+      skirtReachM: 0.3,
+      skirtHeightM: 0.3,
+      /** roundCylinder border radius; the shape is inflated by it, so the core is smaller. */
+      borderM: 0.05,
+      segments: 14,
+    },
+    gate: {
+      /** Posts stand at gate offset +/- this. */
+      halfSpanM: 1.1,
+      /** Visual-only banner: height above the floor, depth and the string thickness. */
+      bannerHeightM: 6,
+      bannerDepthM: 0.9,
+      bannerOverhangM: 0.5,
+      stringHalfWidthM: 0.04,
+    },
+    balloon: {
+      radiusM: 0.5,
+      /** Height of the balloon centre above the floor. */
+      floatM: 1.2,
+      /** Pops when the ball centre is closer than this to the balloon centre. */
+      popDistM: 1.1,
+      stringHalfWidthM: 0.025,
+      segments: 10,
+      /** Pop animation: seconds, and the peak scale reached by the burst (at `popPeakAt` of it). */
+      popSeconds: 0.3,
+      popPeakScale: 1.6,
+      popPeakAt: 0.35,
+    },
+  },
+
+  /** Contact events for the bump / wall sound (PLAN sections 6 and 10); Phase 5 plays them. */
+  contacts: {
+    /** Minimum contact impulse (N s) over one physics step for an event. */
+    impulseThreshold: 0.5,
+    /** A contact is "new" when the collider had no force event in the previous this-many steps. */
+    newGapSteps: 6,
+    /** Per-collider refractory period, seconds. */
+    refractorySeconds: 1,
+    /** At most this many contact events per second overall. */
+    maxPerSecond: 2,
+  },
+
+  /** Decor (PLAN section 9): placed 8-16 m from the centreline by a PRNG seeded from the level id. */
+  decor: {
+    perMetre: 0.5,
+    minDistM: 8,
+    maxDistM: 16,
+    /** Share of trees and clouds; the rest are flat discs. */
+    treeShare: 0.5,
+    cloudShare: 0.25,
+    /** Placement attempts per item before it is dropped (the track may curve back on itself). */
+    maxTries: 12,
+    treeScale: [0.8, 1.5],
+    cloudScale: [1.2, 2.2],
+    discScale: [1.5, 3],
+    /** Clouds float this high above the track frame's floor, metres. */
+    cloudHeight: [4, 9],
+    /** Trees and discs sit this far below the frame's floor level. */
+    groundDropM: 0.3,
+    segments: 8,
+    /**
+     * Cloud colour multiplier. Lambert lighting from a hemisphere light greys a white shape, so
+     * the vertex colour is pushed past 1 and the lit result clamps back to a soft white.
+     */
+    cloudBrightness: 1.45,
+  },
+
+  /** Checkpoint and finish arches, flags (PLAN sections 5 and 9). All visual. */
+  arch: {
+    postWidthM: 0.4,
+    /** Height of the underside of the beam. The camera is ~4.5 m above the floor, so it passes under. */
+    beamHeightM: 7.5,
+    beamThicknessM: 0.5,
+    beamDepthM: 0.4,
+    /** Posts stand this far outside the outer face of the walls. */
+    outsetM: 0.5,
+    /** Finish arch: size of the chequered squares on its beam. */
+    checkerM: 0.5,
+    /** Flag pole on top of a checkpoint arch, and the cloth. */
+    poleHeightM: 1.6,
+    poleWidthM: 0.14,
+    clothWidthM: 1.2,
+    clothHeightM: 0.8,
+    /** The cloth slides down the pole by this much when the checkpoint is passed... */
+    dropM: 0.7,
+    /** ...over this many seconds, spinning this many turns about the pole. */
+    dropSeconds: 0.8,
+    spinTurns: 2,
   },
 
   /** Autopilot finish-time proxy for Big kid, seconds [min, max] (PLAN section 13). */
@@ -194,8 +335,8 @@ export const tuning = {
   /** Physics world (PLAN section 6). */
   physics: {
     gravity: -9.81,
-    /** Spawn at this arc length on the first start (a stand-in for the Phase 2 start pad). */
-    startArcM: 1,
+    /** The ball starts on the start pad, at this arc length (frame 0 = the pad's centre). */
+    startArcM: 0,
     /** Catch plane half extent beyond the track bounding box, metres. */
     catchPlaneMarginM: 50,
     /** The catch plane counts as hit when the ball centre is within this many metres of its top. */
@@ -247,6 +388,13 @@ export const tuning = {
     lookAheadM: 4,
     /** Weight of the look-ahead lateral term relative to the centring term. */
     lookAheadGain: 0.5,
+    /** Pillar / gate repulsion (PLAN section 13): window along the track, clearance and strength. */
+    postAheadM: 6,
+    postBehindM: 1,
+    /** Posts whose arc positions differ by less than this belong to the same group (a gate). */
+    postGroupM: 0.5,
+    postMarginM: 0.5,
+    postGain: 4,
   },
 } as const;
 

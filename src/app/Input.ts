@@ -13,11 +13,17 @@ export function steerOriginX(downX: number, width: number, rangePx: number): num
   return Math.min(Math.max(downX, rangePx), width - rangePx);
 }
 
-/** Absolute steer from the virtual origin: 0 inside the dead zone, else clamp(dx / range, -1, 1). */
+/**
+ * Absolute steer from the virtual origin. Continuous through the dead zone: 0 up to `deadZonePx`,
+ * then a linear ramp that reaches +/-1 at `rangePx`:
+ * sign(dx) * clamp((|dx| - deadZone) / (range - deadZone), 0, 1).
+ */
 export function steerFromOffset(x: number, originX: number, rangePx: number): number {
   const dx = x - originX;
-  if (Math.abs(dx) < tuning.input.deadZonePx) return 0;
-  return Math.max(-1, Math.min(1, dx / rangePx));
+  const dead = tuning.input.deadZonePx;
+  const span = Math.max(1e-6, rangePx - dead);
+  const magnitude = Math.max(0, Math.min(1, (Math.abs(dx) - dead) / span));
+  return magnitude === 0 ? 0 : Math.sign(dx) * magnitude;
 }
 
 /** True when a pointer starts too close to any screen edge (thumbs, palms, system gestures). */
@@ -82,10 +88,18 @@ export class Input {
     this.lockoutLeft = tuning.input.lockoutMs / 1000;
   }
 
-  /** Let go of the pointer and keys (pointercancel, blur, hidden, resize). */
+  /**
+   * Let go of the pointer (pointercancel, blur, hidden, resize, state change). Key state is kept:
+   * a key that is still physically held stays held, and only the lockout gates it. Use
+   * `clearKeys()` when key-up events may have been missed (blur, hidden).
+   */
   release(): void {
     this.activeId = null;
     this.stillSeconds = 0;
+  }
+
+  /** Forget held keys (the window lost focus, so key-up events may never arrive). */
+  clearKeys(): void {
     this.keyLeft = this.keyRight = this.keyDrive = false;
     this.keySteer = 0;
   }
@@ -143,11 +157,14 @@ export class Input {
 
   /** Advance time-based behaviour by a rendered frame's real duration (seconds). */
   update(dt: number): void {
-    if (this.lockoutLeft > 0) this.lockoutLeft = Math.max(0, this.lockoutLeft - dt);
+    // Only the part of this frame after the lockout ended counts toward the keyboard ramp.
+    const lockedFor = this.lockoutLeft;
+    if (lockedFor > 0) this.lockoutLeft = Math.max(0, lockedFor - dt);
+    const rampDt = lockedFor > 0 ? Math.max(0, dt - lockedFor) : dt;
 
-    // Keyboard steer ramps toward -1 / 0 / +1.
-    const target = (this.keyRight ? 1 : 0) - (this.keyLeft ? 1 : 0);
-    const maxDelta = tuning.input.keyboardSteerPerSecond * dt;
+    // Keyboard steer ramps toward -1 / 0 / +1 (toward 0 while locked, so it eases in afterwards).
+    const target = this.lockoutLeft > 0 ? 0 : (this.keyRight ? 1 : 0) - (this.keyLeft ? 1 : 0);
+    const maxDelta = tuning.input.keyboardSteerPerSecond * (this.lockoutLeft > 0 ? dt : rampDt);
     this.keySteer += Math.max(-maxDelta, Math.min(maxDelta, target - this.keySteer));
 
     if (this.activeId !== null) this.stillSeconds += dt;
@@ -200,7 +217,10 @@ export class Input {
         }
       }
     };
-    const onRelease = (): void => this.release();
+    const onBlur = (): void => {
+      this.release();
+      this.clearKeys();
+    };
     const onKeyDown = (e: KeyboardEvent): void => this.keyChange(e.code, true);
     const onKeyUp = (e: KeyboardEvent): void => this.keyChange(e.code, false);
     const onResize = (): void => {
@@ -208,7 +228,7 @@ export class Input {
       this.release();
     };
     const onVisibility = (): void => {
-      if (win.document.visibilityState !== 'visible') this.release();
+      if (win.document.visibilityState !== 'visible') onBlur();
     };
 
     this.setViewport(win.innerWidth, win.innerHeight);
@@ -217,7 +237,7 @@ export class Input {
     canvas.addEventListener('pointerup', onUp);
     canvas.addEventListener('pointercancel', onUp);
     canvas.addEventListener('lostpointercapture', onUp);
-    win.addEventListener('blur', onRelease);
+    win.addEventListener('blur', onBlur);
     win.addEventListener('resize', onResize);
     win.addEventListener('keydown', onKeyDown);
     win.addEventListener('keyup', onKeyUp);
@@ -228,7 +248,7 @@ export class Input {
       canvas.removeEventListener('pointerup', onUp);
       canvas.removeEventListener('pointercancel', onUp);
       canvas.removeEventListener('lostpointercapture', onUp);
-      win.removeEventListener('blur', onRelease);
+      win.removeEventListener('blur', onBlur);
       win.removeEventListener('resize', onResize);
       win.removeEventListener('keydown', onKeyDown);
       win.removeEventListener('keyup', onKeyUp);

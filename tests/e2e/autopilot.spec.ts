@@ -6,7 +6,9 @@ const BUDGET_SECONDS = { tiny: 120, bigkid: 150 } as const;
 const BIGKID_WINDOW = [12, 60] as const;
 
 for (const tier of ['tiny', 'bigkid'] as const) {
-  test(`autopilot completes levelTest in ${tier}`, async ({ page }) => {
+  test(`autopilot completes levelTest in ${tier} (bumps, balloons, pillars, gate)`, async ({
+    page,
+  }) => {
     const errors: string[] = [];
     page.on('console', (msg) => {
       if (msg.type() === 'error') errors.push(`console: ${msg.text()}`);
@@ -26,8 +28,9 @@ for (const tier of ['tiny', 'bigkid'] as const) {
         const stateAfterLoad = tt.state;
         const width = tt.trackWidth();
         tt.autopilot = true;
+        const obstacles = tt.obstacles();
         const r = tt.fastForward(budget, 'finished');
-        return { stateAfterLoad, width, ...r, ball: tt.ball() };
+        return { stateAfterLoad, width, obstacles, ...r, ball: tt.ball(), balloons: tt.balloons() };
       },
       { tier, budget: BUDGET_SECONDS[tier] },
     );
@@ -42,11 +45,24 @@ for (const tier of ['tiny', 'bigkid'] as const) {
     }
     expect(result.ball.t).toBeGreaterThan(95);
 
+    // Phase 2: levelTest has every obstacle kind (pillars and the gate are Big kid only), and the
+    // autopilot, which only follows the centreline and avoids posts, pops the balloons on its way:
+    // all of them in Tiny (they are within 0.4 m of the centreline); at least one in Big kid.
+    expect(result.obstacles.bump).toBe(2);
+    expect(result.obstacles.balloon).toBe(4);
+    expect(result.obstacles.pillar).toBe(tier === 'bigkid' ? 2 : 0);
+    expect(result.obstacles.gate).toBe(tier === 'bigkid' ? 1 : 0);
+    expect(result.balloons.total).toBe(4);
+    if (tier === 'tiny') expect(result.balloons.popped).toBe(result.balloons.total);
+    else expect(result.balloons.popped).toBeGreaterThanOrEqual(1);
+
     // Record the finish time in the test report.
     test
       .info()
       .annotations.push({ type: 'finish-seconds', description: result.seconds.toFixed(2) });
-    console.log(`autopilot levelTest ${tier}: finished in ${result.seconds.toFixed(2)} s`);
+    console.log(
+      `autopilot levelTest ${tier}: finished in ${result.seconds.toFixed(2)} s, balloons ${result.balloons.popped}/${result.balloons.total}`,
+    );
 
     expect(errors).toEqual([]);
   });

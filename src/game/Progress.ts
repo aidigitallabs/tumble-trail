@@ -84,8 +84,10 @@ export class Progress {
     const dy = pos.y - f.pos.y;
     const dz = pos.z - f.pos.z;
     const along = dx * f.tangent.x + dy * f.tangent.y + dz * f.tangent.z;
-    const half = tuning.spline.frameSpacingM;
-    this.arcM = f.arcM + Math.max(-half, Math.min(half, along));
+    // The nearest frame is within half a spacing along the track, so the projection is too.
+    const half = tuning.spline.frameSpacingM / 2;
+    const totalM = (frames[frames.length - 1] as Frame).arcM;
+    this.arcM = Math.max(0, Math.min(totalM, f.arcM + Math.max(-half, Math.min(half, along))));
     this.lateralOffset = dx * f.right.x + dy * f.right.y + dz * f.right.z;
     if (this.arcM > this.t) this.t = this.arcM;
 

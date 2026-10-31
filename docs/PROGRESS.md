@@ -205,3 +205,109 @@ await __tt.loadLevel('levelTest')` in the console until the Phase 4 parent menu 
   would be gentler for a toddler.
 - Section 5 places the start pad under "Track conventions" but section 16 makes it a Phase 2 task;
   Phase 1b spawns the ball 1 m along the track instead.
+
+## 31 Oct 2026 — Phase 2: track system complete
+
+**Review fixes applied (Phase 1b code review, each with a unit test in `tests/unit/reviewfixes.test.ts`,
+`input.test.ts` or `gameworld.test.ts`)**
+
+1. `fastForward` advances `Input` time per step (`src/app/fastForward.ts`), so the lockout expires and
+   keyboard steer ramps; a Big kid `hold` run with keyboard drive moves during a fast-forward.
+2. `buildColliders` skips a collider with zero triangles (`walls: Collider | null`).
+3. `makeFrame` falls back to the previous frame's `right` (world +X at frame 0) when the tangent is
+   (anti)parallel to up; no NaN frames.
+4. `Progress` clamps the projection to half a frame spacing and `arcM` to `[0, totalM]`.
+5. `App.resize` no longer duplicates the viewport / release wiring (`Input.attach` owns it; tested).
+6. `spline.tension` removed (dead key and argument).
+7. Key state survives `release()` / `lock()` (gated by the lockout only); `clearKeys()` on blur / hidden.
+8. Continuous dead zone; `brakeDamping` also as angular damping when not driving.
+   Finding: the ball STILL creeps down a 15 degree ramp at about 0.74 m/s (was about 1 m/s). Damping is
+   proportional to speed, so terminal creep = (5/7 g sin 15) / brakeDamping = 0.72 m/s; it can never
+   hold a ball. See "look at next".
+
+**Done**
+
+- `validateLevel` with all 7 rules (`src/levels/schema.ts`), returns `{ ok, errors: [{ rule, message }] }`;
+  35 unit tests (`validate.test.ts`), every rule has crafted failing levels; `levelTest` passes.
+- Walls `full` / `low` / `none` + `noWallSpansM` wired from `LevelDef` and `TierTuning.wallMode`.
+- Start pad (3 m disc, rear half in the floor mesh), ball spawns on it; end pad and back wall verified
+  (a ball rolled into the back wall stays on the pad); finish arch (chequered) and checkpoint arches with
+  flags that drop and spin when passed (`Arches.ts`, `LevelView.ts`).
+- `Obstacles.ts`: bump, pillar, gate, balloon with the exact PLAN dimensions (verified by ray casts and
+  vertex extents), tier-filtered, placed by `atM` / `offset` on the frame's `right`; balloons popped by
+  the distance check inside `GameWorld.step`.
+- Contact events (`Contacts.ts`): force events on the ball, new contacts only, floor ignored, <= 2/s, 1 s
+  refractory per collider; `GameWorld.drainEvents()` returns `contact` (kind wall / pillar / gate /
+  bump), `pop` and `checkpoint`.
+- `Decor.ts` (seeded by level id, 8-16 m from the centreline, tested also on a track that curls back),
+  sky + fog from the palette (already in `App`).
+- Autopilot repulsion from pillar / gate posts (nearest group, 6 m ahead).
+- `levelTest` converted: bumps, balloons, 2 pillars + 1 gate (Big kid), validates.
+- Unit tests: 104 -> 206 in 16 files. E2E: 9 tests (the autopilot tests now also assert the obstacle
+  counts and the balloons popped).
+- Checks: `lint`, `typecheck`, `test:unit` (206/206), `build`, `test:e2e` (9/9) all pass locally.
+
+**Autopilot finish times on `levelTest` (simulated seconds, 0 respawns, 0 pillar / gate contacts)**
+
+- Tiny: 28.08 s (budget 120 s; Phase 1b was 27.5 s). Big kid: 21.13 s (window 12-60 s; was 20.6 s).
+- Balloons popped by the autopilot, which only follows the centreline and does not seek them:
+  Tiny 4 / 4, Big kid 4 / 4 (they are within 0.4 m of the centreline). The e2e asserts all 4 in Tiny and
+  > = 1 in Big kid; the unit tests assert all 4 in both.
+
+**Stats (`renderer.info`, decor on, both tiers)**: Tiny 12,728 triangles / 12 draw calls at the start,
+12,344 / 11 later; Big kid 13,100 / 12 and 12,716 / 11. Budget 40,000 / 40. (Draw calls: floor, walls,
+bumps, props, balloons, flags, 3 decor shapes, ball, outline, shadow.)
+
+**Skipped and why**
+
+- Nothing from Phase 2. Not started, as specified: levels 01-06 (Phase 3), screens, audio and
+  confetti / pop sound (the pop is a visual scale burst only), `Effects.ts`.
+- "e2e green in CI": CI cannot run until the project has its own repo (see Phase 0). Run locally.
+
+**PENDING HUMAN**
+
+- PENDING HUMAN: Look at `levelTest` on a real iPad in both tiers: do the pillars, gate, bumps and
+  balloons read clearly and feel right (bump height at 5 m/s in Big kid, balloon pop distance, arch /
+  flag size, decor density and colour on iPad GPU)? To try Big kid: `npm run dev`, then in the console
+  `__tt.setTier('bigkid'); await __tt.loadLevel('levelTest')`.
+- PENDING HUMAN (carried over): hand-feel on desktop / iPad of both drive modes (Phase 1b), move the
+  project to `aidigitallabs/tumble-trail`, confirm CI green and Pages; Pages URL on an iPad.
+
+**Look at next**
+
+- Parking brake: damping cannot hold a ball on a ramp (creep 0.74 m/s at 15 degrees). If the iPad feel
+  says "slides back" (Big kid), the fix is a rule, not a bigger number: e.g. below a small speed with no
+  drive, zero the velocity or add friction-like resistance. Decide in Phase 3b.
+- Camera vs gate banner: the banner hangs at 6.0-6.9 m and the camera is about 4.5 m above the floor
+  (more when the track falls behind it). If a level climbs steeply within 7 m after a gate the camera
+  can pass through the banner; keep gates followed by flat track in Phase 3 (level 4 has "gate on the
+  plateau").
+- Arches: the camera passes under the arch beams (7.5 m up). With the track climbing 15 degrees right
+  after an arch the camera is at about 6.3 m: still under, but check on the ramp-up checkpoint.
+- `levelTest` placement was constrained by the validator: pillars and gates need flat straights at least
+  4 m from any bend tighter than 12 m. Level 3 (the 150 degree sweep, radius >= 12 m, which is exactly
+  the limit) and level 5 (radius >= 10 m turns, pillars "on the outside of each turn") will need
+  checking against rule 5; the plan's pillar placement there may not validate (see inconsistencies).
+- Phase 3 can use `placeObstacles`, `validateLevel` and `LevelView` as they are; `App.loadLevel` needs no
+  change for new levels. Phase 4 hooks `App.setState`; Phase 5 consumes `GameWorld.drainEvents()`.
+
+**Plan inconsistencies found (plan not changed)**
+
+- Section 7 says "no lintels" yet section 5 / 9 require checkpoint and finish arches (lintels over the
+  track) and a gate banner; resolved by putting beams at 7.5 m and the banner at 6 m (above the camera),
+  see DECISIONS.
+- Section 5 pillar rule `|offset| <= width/2 - 0.2` allows a pillar centre 0.2 m inside the Big kid
+  wall's inner face at offset 1.55 (the post then covers the whole narrow side, 1.15-1.95 m vs the track
+  edge at 1.75 m). That is the intended "go the other way" but the text calls the wide side "always
+  1.6 m" (it is 2.9 m there, 1.95 m at offset 0.6). Consistent, just worth knowing.
+- Section 5 rule 5 (pillars / gates 4 m from a frame with radius < 12 m) combined with Appendix B level 5
+  ("pillars on the outside of each turn", turn radius >= 10 m) and level 3 (sweep radius >= 12 m, i.e.
+  right at the limit): any pillar within 4 m of a 10 m-radius turn fails the validator, so the level-5
+  brief cannot be authored literally; Phase 3 will have to place those pillars on the straights next to
+  the turns or relax rule 5. Reported, not decided.
+- Section 5 says a balloon "floats 1.2 m above the floor" and pops at < 1.1 m: if 1.2 m were the sphere's
+  bottom (centre at 1.7 m) a ball on the floor could never pop it; implemented as the centre at 1.2 m.
+- Section 5 rule 3 "no wall ribbon self-intersection" is only defined informally; implemented as a
+  plan-view separation test (see DECISIONS).
+- Section 4 `Effects.ts` / `Audio.ts` do not exist yet (Phase 5); `GameWorld.drainEvents()` is the
+  plumbing they will use.

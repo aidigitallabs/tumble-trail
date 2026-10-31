@@ -1,7 +1,8 @@
 import RAPIER from '@dimforge/rapier3d-compat';
-import { BufferGeometry, Color, Float32BufferAttribute, Vector3 } from 'three';
+import { BufferGeometry, Color, Vector3 } from 'three';
 import { palettes } from '../config/brand';
 import { tuning } from '../config/tuning';
+import { MeshBuilder } from './MeshBuilder';
 import type { Frame } from './Spline';
 
 /** Wall mode for a ribbon (PLAN section 5). 'none' is only meant for Big kid straights. */
@@ -11,6 +12,8 @@ export interface RibbonColors {
   track: number;
   stripe: number;
   wall: number;
+  /** Start pad colour. Default: the stripe colour. */
+  pad?: number;
 }
 
 export interface RibbonOptions {
@@ -22,6 +25,12 @@ export interface RibbonOptions {
   finishM?: number;
   /** Vertex colours. Default: the meadow palette. */
   colors?: RibbonColors;
+  /**
+   * Radius of the start pad: a flat disc centred on frame 0, lying in frame 0's plane. The half in
+   * front of the start line coincides with the track floor, so only the half behind it is built.
+   * Omit for no pad.
+   */
+  startPadRadiusM?: number;
 }
 
 export interface RibbonGeometry {
@@ -36,56 +45,15 @@ export function wallHeight(mode: WallMode): number {
   return 0;
 }
 
-/** Non-indexed triangle soup with flat normals and vertex colours. */
-class MeshBuilder {
-  readonly position: number[] = [];
-  readonly normal: number[] = [];
-  readonly color: number[] = [];
-  private readonly ab = new Vector3();
-  private readonly ac = new Vector3();
-  private readonly n = new Vector3();
-
-  /** One triangle, wound so its geometric normal agrees with `outward` (flipped if it does not). */
-  private tri(a: Vector3, b: Vector3, c: Vector3, outward: Vector3, col: Color): void {
-    this.ab.subVectors(b, a);
-    this.ac.subVectors(c, a);
-    this.n.crossVectors(this.ab, this.ac);
-    if (this.n.lengthSq() < 1e-14) return; // degenerate sliver
-    this.n.normalize();
-    if (this.n.dot(outward) < 0) {
-      this.pushTri(a, c, b, this.n.negate(), col);
-    } else {
-      this.pushTri(a, b, c, this.n, col);
-    }
-  }
-
-  private pushTri(a: Vector3, b: Vector3, c: Vector3, n: Vector3, col: Color): void {
-    for (const p of [a, b, c]) {
-      this.position.push(p.x, p.y, p.z);
-      this.normal.push(n.x, n.y, n.z);
-      this.color.push(col.r, col.g, col.b);
-    }
-  }
-
-  /** A quad p0-p1-p2-p3 (in loop order) facing `outward`. */
-  quad(p0: Vector3, p1: Vector3, p2: Vector3, p3: Vector3, outward: Vector3, col: Color): void {
-    this.tri(p0, p1, p2, outward, col);
-    this.tri(p0, p2, p3, outward, col);
-  }
-
-  toGeometry(): BufferGeometry {
-    const g = new BufferGeometry();
-    g.setAttribute('position', new Float32BufferAttribute(this.position, 3));
-    g.setAttribute('normal', new Float32BufferAttribute(this.normal, 3));
-    g.setAttribute('color', new Float32BufferAttribute(this.color, 3));
-    return g;
-  }
-}
-
 const UP = new Vector3(0, 1, 0);
 
 /** Floor: three strips (left, centre stripe, right), centre stripe dashed along the track. */
-function buildFloor(frames: readonly Frame[], width: number, colors: RibbonColors): BufferGeometry {
+function buildFloor(
+  frames: readonly Frame[],
+  width: number,
+  colors: RibbonColors,
+  startPadRadiusM: number,
+): BufferGeometry {
   const mb = new MeshBuilder();
   const trackCol = new Color(colors.track);
   const stripeCol = new Color(colors.stripe);
@@ -106,6 +74,21 @@ function buildFloor(frames: readonly Frame[], width: number, colors: RibbonColor
       const col = j === 1 && stripeOn ? stripeCol : trackCol;
       mb.quad(p(a, x0), p(a, x1), p(b, x1), p(b, x0), UP, col);
     }
+  }
+
+  // Start pad: the half of the disc behind frame 0, as a fan from the frame's centre.
+  const first = frames[0];
+  if (first && startPadRadiusM > 0) {
+    const padCol = new Color(colors.pad ?? colors.stripe);
+    const n = tuning.track.startPadSegments;
+    const rim = (k: number): Vector3 => {
+      const phi = -Math.PI / 2 + (k * Math.PI) / n;
+      return first.pos
+        .clone()
+        .addScaledVector(first.right, startPadRadiusM * Math.sin(phi))
+        .addScaledVector(first.tangent, -startPadRadiusM * Math.cos(phi));
+    };
+    for (let k = 0; k < n; k++) mb.tri(first.pos, rim(k), rim(k + 1), first.up, padCol);
   }
   return mb.toGeometry();
 }
@@ -232,21 +215,32 @@ export function buildRibbonGeometry(
     wall: palettes.meadow.wall,
   };
   return {
-    floor: buildFloor(frames, width, colors),
+    floor: buildFloor(frames, width, colors, options.startPadRadiusM ?? 0),
     walls: buildWalls(frames, width, wallMode, noWallSpansM, options, colors),
   };
 }
 
 export interface TrackColliders {
   floor: RAPIER.Collider;
-  walls: RAPIER.Collider;
+  /** Null when the wall geometry has no triangles (wall mode 'none' without an end pad). */
+  walls: RAPIER.Collider | null;
   catchPlane: RAPIER.Collider;
   /** World Y of the top surface of the catch plane (10 m below the lowest frame). */
   catchY: number;
 }
 
-/** A fixed trimesh collider from a non-indexed triangle soup (indices are simply 0..n-1). */
-function trimeshDesc(geometry: BufferGeometry): RAPIER.ColliderDesc {
+/** Number of triangles in a non-indexed triangle soup. */
+export function triangleCount(geometry: BufferGeometry): number {
+  const position = geometry.getAttribute('position');
+  return position ? Math.floor(position.count / 3) : 0;
+}
+
+/**
+ * A fixed trimesh collider description from a non-indexed triangle soup (indices are simply
+ * 0..n-1), or null when there is no triangle: Rapier panics on an empty index buffer.
+ */
+export function trimeshDesc(geometry: BufferGeometry): RAPIER.ColliderDesc | null {
+  if (triangleCount(geometry) === 0) return null;
   const position = geometry.getAttribute('position');
   const vertices = new Float32Array(position.array as ArrayLike<number>);
   const indices = new Uint32Array(position.count);
@@ -263,16 +257,19 @@ function trimeshDesc(geometry: BufferGeometry): RAPIER.ColliderDesc {
  * vertex is the lowest frame, because every floor strip is horizontal across the track.
  */
 export function buildColliders(world: RAPIER.World, geoms: RibbonGeometry): TrackColliders {
+  const floorDesc = trimeshDesc(geoms.floor);
+  if (!floorDesc) throw new Error('The track floor has no triangles (needs at least 2 frames)');
   const floor = world.createCollider(
-    trimeshDesc(geoms.floor)
-      .setFriction(tuning.track.floorFriction)
-      .setRestitution(tuning.track.floorRestitution),
+    floorDesc.setFriction(tuning.track.floorFriction).setRestitution(tuning.track.floorRestitution),
   );
-  const walls = world.createCollider(
-    trimeshDesc(geoms.walls)
-      .setFriction(tuning.track.wallFriction)
-      .setRestitution(tuning.track.wallRestitution),
-  );
+  const wallDesc = trimeshDesc(geoms.walls);
+  const walls = wallDesc
+    ? world.createCollider(
+        wallDesc
+          .setFriction(tuning.track.wallFriction)
+          .setRestitution(tuning.track.wallRestitution),
+      )
+    : null;
 
   geoms.floor.computeBoundingBox();
   const box = geoms.floor.boundingBox as NonNullable<BufferGeometry['boundingBox']>;

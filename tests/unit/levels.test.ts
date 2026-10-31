@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { buildSpline } from '../../src/game/Spline';
 import { getLevel, levels, levelTest } from '../../src/levels';
 import { validateLevel, type LevelDef, type Vec3 } from '../../src/levels/schema';
-import { straightPoints } from './fixtures';
+import { plainLevel, straightPoints } from './fixtures';
 
 const withPoints = (points: Vec3[]): LevelDef => ({ ...levelTest, id: 'crafted', points });
 
@@ -74,7 +74,7 @@ describe('levelTest', () => {
   });
 });
 
-describe('validateLevel (rule 1 stub)', () => {
+describe('validateLevel rule 1', () => {
   it('rejects fewer than 4 control points', () => {
     const r = validateLevel(withPoints(straightPoints.slice(0, 3)));
     expect(r.ok).toBe(false);
@@ -125,9 +125,9 @@ describe('validateLevel (rule 1 stub)', () => {
   });
 
   it('accepts the boundary lengths', () => {
+    // Plain levels also pass rules 2-7, so only rule 1 is in play at the edges.
     for (const len of [80.5, 119.5]) {
-      const pts: Vec3[] = [0, 1, 2, 3].map((i) => [0, 0, (i * len) / 3] as Vec3);
-      expect(validateLevel(withPoints(pts)).ok).toBe(true);
+      expect(validateLevel(plainLevel(len))).toEqual({ ok: true, errors: [] });
     }
   });
 });

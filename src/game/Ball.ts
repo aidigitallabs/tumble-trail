@@ -68,7 +68,11 @@ export class Ball {
         // Explicit mass (not density) so a force in newtons reads as m/s^2 (PLAN section 6).
         .setMass(b.mass)
         .setFriction(b.friction)
-        .setRestitution(b.restitution),
+        .setRestitution(b.restitution)
+        // Contact force events for the bump / wall sound (Phase 5 plays them). The threshold is
+        // a force: the configured impulse per step divided by the step length.
+        .setActiveEvents(RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS)
+        .setContactForceEventThreshold(tuning.contacts.impulseThreshold * tuning.physicsHz),
       this.body,
     );
 
@@ -181,7 +185,10 @@ export class Ball {
     // mass is 1 kg, so impulse = force * dt.
     const k = this.dt / b.mass;
     this.body.applyImpulse({ x: fx * k, y: fy * k, z: fz * k }, true);
+    // The parking brake damps rolling too: otherwise the spin keeps feeding the linear velocity
+    // through friction and the ball creeps down a ramp.
     this.body.setLinearDamping(ctl.driving ? b.drivingDamping : tier.brakeDamping);
+    this.body.setAngularDamping(ctl.driving ? b.angularDamping : tier.brakeDamping);
 
     // Horizontal-only speed clamp (keeps falling speed intact).
     const w = this.body.linvel();

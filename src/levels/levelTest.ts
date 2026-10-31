@@ -3,7 +3,8 @@ import type { LevelDef, Vec3 } from './schema';
 /**
  * Test course (PLAN section 16, Phase 1a): straight -> S-bend -> ramp up 15 deg -> plateau ->
  * ramp down -> straight, about 100 m of track (arc length 99.6 m), flat everywhere except the
- * two ramps.
+ * two ramps. Phase 2 fills it with every obstacle kind (Tiny: bumps and balloons; Big kid adds
+ * two pillars and a gate).
  *
  * Built with a tiny generator so the numbers stay readable; the result is a plain point list.
  */
@@ -58,12 +59,19 @@ export const levelTest: LevelDef = {
   points: buildPoints(),
   // Arc-length positions (m). Ramp up is about 48-66 m, plateau 66-74 m, ramp down 74-90 m.
   checkpointsM: [25, 50, 72],
+  // Everything the track system has, placed where the validator wants it (PLAN section 5):
+  // bumps and balloons in both tiers (balloons near the centreline so the autopilot pops them),
+  // pillars and a gate in Big kid only, on flat, straight stretches (the S-bend, 14-44 m, has
+  // radii under 12 m and the ramps are steeper than 8 degrees).
   obstacles: [
+    { atM: 8, offset: 0.9, kind: 'pillar', tiers: ['bigkid'] },
     { atM: 12, offset: 0, kind: 'bump', tiers: ['tiny', 'bigkid'] },
-    { atM: 34, offset: 0, kind: 'bump', tiers: ['tiny', 'bigkid'] },
     { atM: 19, offset: 0, kind: 'balloon', tiers: ['tiny', 'bigkid'] },
-    { atM: 41, offset: 1.2, kind: 'balloon', tiers: ['tiny', 'bigkid'] },
-    { atM: 62, offset: -1.2, kind: 'balloon', tiers: ['tiny', 'bigkid'] },
+    { atM: 34, offset: 0, kind: 'bump', tiers: ['tiny', 'bigkid'] },
+    { atM: 41, offset: 0.4, kind: 'balloon', tiers: ['tiny', 'bigkid'] },
+    { atM: 46, offset: 0, kind: 'gate', tiers: ['bigkid'] },
+    { atM: 62, offset: -0.4, kind: 'balloon', tiers: ['tiny', 'bigkid'] },
+    { atM: 68.5, offset: -0.9, kind: 'pillar', tiers: ['bigkid'] },
     { atM: 84, offset: 0, kind: 'balloon', tiers: ['tiny', 'bigkid'] },
   ],
 };

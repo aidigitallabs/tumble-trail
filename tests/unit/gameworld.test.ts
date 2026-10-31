@@ -37,7 +37,9 @@ describe('ball and colliders (PLAN sections 5 and 6)', () => {
   });
 
   it('builds a floor trimesh (friction 0.8), a wall trimesh (friction 0, restitution 0.3)', () => {
-    const { floor, walls, catchPlane } = w.colliders;
+    const { floor, catchPlane } = w.colliders;
+    const walls = w.colliders.walls!;
+    expect(walls).not.toBeNull();
     expect(floor.friction()).toBeCloseTo(0.8, 6);
     expect(walls.friction()).toBeCloseTo(0, 6);
     expect(walls.restitution()).toBeCloseTo(0.3, 6);
@@ -101,10 +103,13 @@ describe('control forces', () => {
   });
 
   it('holding full steer parks the ball in a lane inside the walls (positive = viewer right)', () => {
+    // levelTest without obstacles: this is about the lane controller, and since Phase 2 a Big kid
+    // ball held at full right steer would (correctly) drive into the pillar at +0.9 m.
+    const bare = { ...levelTest, id: 'levelTestBare', obstacles: [] };
     for (const tier of ['tiny', 'bigkid'] as const) {
       const tt = tuning.tiers[tier];
       const lane = tt.width / 2 - tuning.ball.radius - tt.laneMargin;
-      const w = new GameWorld(levelTest, tier);
+      const w = new GameWorld(bare, tier);
       let maxAbs = 0;
       for (let i = 0; i < 480; i++) {
         w.step({ driving: true, steer: 1 });
@@ -197,6 +202,35 @@ describe('fall, respawn and stuck (PLAN section 6)', () => {
   it('not driving never counts as stuck', () => {
     const w = new GameWorld(levelTest, 'bigkid');
     for (let i = 0; i < 6 * tuning.physicsHz; i++) w.step(IDLE);
+    expect(w.respawnCount).toBe(0);
+  });
+});
+
+describe('parking brake damps rolling too (review 8)', () => {
+  it('angular damping follows linear damping: brakeDamping when not driving, 0.1 when driving', () => {
+    const w = new GameWorld(levelTest, 'bigkid');
+    w.step({ driving: true, steer: 0 });
+    expect(w.ball.body.linearDamping()).toBeCloseTo(tuning.ball.drivingDamping, 6);
+    expect(w.ball.body.angularDamping()).toBeCloseTo(tuning.ball.angularDamping, 6);
+    w.step({ driving: false, steer: 0 });
+    expect(w.ball.body.linearDamping()).toBeCloseTo(tuning.tiers.bigkid.brakeDamping, 6);
+    expect(w.ball.body.angularDamping()).toBeCloseTo(tuning.tiers.bigkid.brakeDamping, 6);
+    w.step({ driving: true, steer: 0 });
+    expect(w.ball.body.angularDamping()).toBeCloseTo(tuning.ball.angularDamping, 6);
+  });
+
+  it('the spin dies quickly after letting go, and creeps down a 15 degree ramp more slowly', () => {
+    const bare = { ...levelTest, id: 'levelTestBare', obstacles: [] };
+    const w = new GameWorld(bare, 'bigkid');
+    w.autopilot = true;
+    while (w.progress.arcM < 57) w.step({ driving: true, steer: 0 }); // on the ramp (15 degrees)
+    w.autopilot = false;
+    const spin0 = Math.hypot(...Object.values(w.ball.body.angvel()));
+    for (let i = 0; i < 90; i++) w.step({ driving: false, steer: 0 });
+    // Terminal creep speed is gravity along the slope (rolling, 5/7 of g sin 15) over the damping:
+    // 1.81 / 2.5 = 0.72 m/s. Before this fix the spin kept feeding the ball, about 1 m/s.
+    expect(spin0).toBeGreaterThan(2);
+    expect(w.ball.speed()).toBeLessThan(0.9);
     expect(w.respawnCount).toBe(0);
   });
 });

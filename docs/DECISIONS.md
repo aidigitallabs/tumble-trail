@@ -153,3 +153,93 @@ measured in the current frame's right) / (width / 4)`; both constants are in `tu
   Phase 0 smoke test now waits for `playing` instead of `title` and asserts the ball makes progress
   along the track instead of coming to rest on a plane (the plane no longer exists); everything else
   in it is unchanged.
+
+## 31 Oct 2026 — Phase 2 decisions
+
+**Review fixes (Phase 1b code review)**
+
+- **`fastForward` lives in `src/app/fastForward.ts`** (`fastForwardSim`) so it can be unit tested without
+  a renderer; `App.fastForward` is a thin wrapper. It calls `Input.update(1 / physicsHz)` per step, so
+  the 500 ms lockout expires and the keyboard ramps during a fast-forward.
+- **`Input.update` only counts the part of a frame after the lockout ended** toward the keyboard ramp,
+  and the ramp target is 0 while locked, so a key held through a state change eases in from 0 instead of
+  jumping to full steer. `release()` and `lock()` keep key state; a new `clearKeys()` is called on
+  `blur` and `hidden` only (key-up events may never arrive then). `App.resize` no longer touches the
+  viewport or releases the pointer (`Input.attach` owns both).
+- **Dead zone** is `sign(dx) * clamp((|dx| - dz) / (range - dz), 0, 1)`; it returns exactly `0` (never
+  `-0`) inside the dead zone. The old test that asserted steer 0.5 at half range was updated to the new
+  formula (the behaviour change is the point of the fix).
+- **Parking brake**: `brakeDamping` is now also the angular damping while not driving. Measured: the ball
+  still creeps down a 15 degree ramp at about 0.74 m/s (was about 1 m/s). Linear damping is a drag
+  proportional to speed, so the terminal creep speed is gravity along the slope (rolling: 5/7 g sin 15 =
+  1.81 m/s^2) over the damping, 0.72 m/s. Damping can never fully hold a ball on a slope; see PROGRESS.
+- Existing tests touched, not weakened: the steer-parks-a-lane test runs on `levelTest` without
+  obstacles (a Big kid ball held at full right steer now correctly drives into the pillar at +0.9);
+  the "accepts the boundary lengths" rule-1 test uses a fixture that also satisfies rules 2-7.
+
+**Track system**
+
+- **New files** (PLAN section 4 lists none of these): `MeshBuilder.ts` (the triangle-soup builder that
+  was private to `Track.ts`, plus oriented boxes and baking of three primitives), `Arches.ts`
+  (checkpoint and finish arches, flag cloth), `LevelView.ts` (everything visible except the ball, built
+  from a `GameWorld`; unit testable in Node because it needs no GL context), `Contacts.ts` (the
+  contact-event filter). `App` now only owns the renderer, camera, input and state machine.
+- **`validateLevel`**: rule 1 is a precondition (if the points are unusable, only rule 1 errors are
+  returned, which is what the Phase 1a tests expect). Rules 3 and the slope-window checks are done on
+  the frames. Turning radius is the _plan-view_ (XZ) radius from the heading change between the
+  neighbouring frames; vertical curvature is ignored (walls are vertical and the ball steers in plan).
+  Self-intersection: frames more than `3.2 x width` apart along the arc must be at least
+  `width + 2 x 0.3` apart in plan view (with radius >= width, nearer parts are adjacent by construction).
+  Pillar/gate slope is checked on frames within 1 m of `atM`, the bend radius within 4 m. Two small
+  extras under rule 5 that are physically necessary and not in the plan's list: a bump must fit inside
+  the track (`|offset| + width/6 <= width/2`) and a balloon must be at least 0.5 m from the wall. The
+  offset limits compare with a 1e-9 tolerance so a value exactly on a limit passes.
+- **Walls**: `TierTuning.wallMode` (tiny `full`, bigkid `low`) holds the defaults; the level overrides
+  per tier. `noWallSpansM` is passed for Big kid only.
+- **`buildColliders`**: the wall collider is `null` when the wall geometry has no triangle. The floor
+  collider throws a clear error instead (a track with fewer than 2 frames is a programming error).
+- **Start pad**: the _half_ of the 3 m disc behind frame 0 is added to the floor geometry as a flat fan in
+  frame 0's plane (the front half coincides with the track floor; building it would z-fight). Palette
+  `accent` colour. The ball spawns at frame 0 (`startArcM` is now 0).
+- **Pillar**: `roundCylinder` with the 0.05 m border inside the 0.4 m radius / 2.0 m height, so the
+  rounded shape is exactly r 0.4, h 2.0 (verified by ray casts). The 0.3 m conical skirt also gets a cone
+  collider (kind `pillar` / `gate`), otherwise the ball would roll visibly through the flange; PLAN
+  lists only the `roundCylinder`.
+- **Bump**: height is `sin^2` along the track (zero slope at both ends, 0.2 m peak) and eases down over
+  0.25 m at the lateral ends; the base sits 3 cm below the floor so there is no visible seam. Visual and
+  collider are the same vertices; one trimesh for all bumps in a level.
+- **Gate**: the banner floats at 6 m with two thin visual strings down to the post tops (no collider
+  anywhere above 2 m). The camera sits about 4.5 m above the floor, so a banner at 6-6.9 m is only a
+  risk when the track climbs steeply within 7 m after a gate (PROGRESS, "look at next").
+- **Balloon**: the sphere centre (not the bottom) is 1.2 m above the floor, along the frame's `up`, so
+  a ball on the floor (centre 0.5 m up) pops it from 0.85 m to either side. Popped balloons stay popped
+  for the rest of the level (also after a respawn). Popping is a distance check at the end of
+  `GameWorld.step`; the pop animation (scale burst) is visual and driven by the render loop.
+- **Arches**: posts stand 0.5 m outside the outer face of the walls; the beam's underside is 7.5 m above
+  the floor (the camera is about 4.5 m up, so it passes under; the plan's "no lintels" cannot mean
+  arches, only the gate banner and colliders). Checkpoint flags: a pole on the beam and a swallowtail
+  cloth (one `InstancedMesh`) that slides down 0.7 m and spins two turns when the checkpoint is passed;
+  the shape and pose change, the colour never does. The view reads `progress.checkpointsPassed`
+  (updated by the Progress checkpoint event); a view created after a checkpoint shows it already
+  dropped. `prefers-reduced-motion` drops without spinning. The finish arch is chequered (pattern).
+- **Decor**: rejection sampling against the plan-view distance to the nearest centreline frame (8-16 m,
+  inset 5 cm because nearest-frame distance over-estimates the distance to the polyline), so decor is
+  never closer than 8 m even where the track curves back. Trees and discs sit 0.3 m below their frame's
+  floor, clouds float 4-9 m above it; there is no ground plane (the fog and sky hide the void). Cloud
+  vertex colours are multiplied by `tuning.decor.cloudBrightness` (1.45) so Lambert shading clamps to a
+  soft white instead of grey.
+- **Contact events**: `ActiveEvents.CONTACT_FORCE_EVENTS` on the ball collider with a force threshold of
+  `impulseThreshold (0.5 N s) x physicsHz`. A force event is "new" when that collider had none in the
+  previous 6 steps; floor / catch-plane events are dropped; 1 s refractory per collider handle and at
+  most 2 per rolling second overall; everything counts physics steps (no clock). `GameWorld` also
+  emits `pop` and `checkpoint` events (Phase 5 will want them); `drainEvents()` hands them over and
+  `App` currently drops them. Note all wall segments are one trimesh collider, so the per-collider
+  refractory is per wall mesh, not per segment.
+- **Autopilot repulsion** (PLAN section 13) looks at the _nearest group_ of posts (a gate's two posts
+  count together) from 1 m behind to 6 m ahead, not at every post in the window: with pillars alternating
+  sides 3 m apart, the two overlapping windows pushed in opposite directions and the ball hit the first.
+- **`__tt`** gained `balloons()` and `obstacles()` (read-only counts) so e2e can assert on them.
+- **`levelTest`** keeps its geometry and checkpoints (25 / 50 / 72). Obstacles: bumps 12 / 34, balloons
+  19 / 41 / 62 / 84 (offsets 0, 0.4, -0.4, 0 so the autopilot's centreline pops them all), Big kid only:
+  pillars at 8 m (+0.9) and 68.5 m (-0.9), a gate at 46 m. They sit on the only places that satisfy the
+  validator: flat, straight, away from the S-bend (radius under 12 m up to about 42 m) and the ramps.

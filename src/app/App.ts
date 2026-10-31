@@ -3,8 +3,10 @@ import { palettes } from '../config/brand';
 import { pickPixelRatio, tuning } from '../config/tuning';
 import { FollowCamera } from '../game/Camera';
 import { GameWorld } from '../game/GameWorld';
+import { LevelView } from '../game/LevelView';
 import { getLevel } from '../levels';
 import type { Tier } from '../levels/schema';
+import { fastForwardSim } from './fastForward';
 import { GameLoop } from './GameLoop';
 import { Input } from './Input';
 import type { TT, TTHost, TTState, TTStats } from './tt';
@@ -24,7 +26,8 @@ export class App implements TTHost {
   private readonly input = new Input();
   private readonly loop: GameLoop;
   private readonly levelGroup = new THREE.Group();
-  private readonly materials: THREE.Material[] = [];
+  private view: LevelView | null = null;
+  private reducedMotion = false;
   private readonly fog = new THREE.Fog(0xffffff, tuning.render.fogNear, tuning.render.fogFar);
 
   private tier: Tier = 'tiny';
@@ -62,7 +65,8 @@ export class App implements TTHost {
 
     this.followCam = new FollowCamera(tuning.tiers[this.tier]);
     const motion = window.matchMedia?.('(prefers-reduced-motion: reduce)');
-    this.followCam.setReducedMotion(motion?.matches ?? false);
+    this.reducedMotion = motion?.matches ?? false;
+    this.followCam.setReducedMotion(this.reducedMotion);
 
     this.loop = new GameLoop(() => this.physicsStep());
     this.input.attach(canvas);
@@ -107,14 +111,8 @@ export class App implements TTHost {
     this.scene.background = new THREE.Color(palette.sky);
     this.fog.color.set(palette.fog);
 
-    const material = new THREE.MeshLambertMaterial({ vertexColors: true });
-    this.materials.push(material);
-    this.levelGroup.add(
-      new THREE.Mesh(sim.geoms.floor, material),
-      new THREE.Mesh(sim.geoms.walls, material),
-      sim.ball.group,
-      sim.ball.shadow,
-    );
+    this.view = new LevelView(sim, { reducedMotion: this.reducedMotion });
+    this.levelGroup.add(this.view.group, sim.ball.group, sim.ball.shadow);
 
     this.input.configure(sim.tierTuning.driveMode, sim.tierTuning.steerDecay);
     this.followCam.setTier(sim.tierTuning);
@@ -132,14 +130,16 @@ export class App implements TTHost {
   fastForward(maxSeconds: number, until?: TTState): { state: TTState; seconds: number } {
     const sim = this.sim;
     if (!sim || (until && this.state === until)) return { state: this.state, seconds: 0 };
-    const total = Math.round(maxSeconds * tuning.physicsHz);
-    let n = 0;
-    while (n < total && sim.state === 'playing') {
-      sim.step(this.input.controls);
-      n++;
-      this.syncState();
-      if (until && this.state === until) break;
-    }
+    const n = fastForwardSim(
+      sim,
+      this.input,
+      maxSeconds,
+      () => !!until && this.state === until,
+      () => {
+        sim.drainEvents();
+        this.syncState();
+      },
+    );
     this.loop.reset();
     sim.ball.applyRender(1);
     return { state: this.state, seconds: n / tuning.physicsHz };
@@ -148,6 +148,17 @@ export class App implements TTHost {
   stats(): TTStats {
     const info = this.renderer.info;
     return { triangles: info.render.triangles, drawCalls: info.render.calls, fps: this.fps };
+  }
+
+  balloons(): { total: number; popped: number } {
+    const b = this.sim?.balloons ?? [];
+    return { total: b.length, popped: b.filter((x) => x.popped).length };
+  }
+
+  obstacles(): Record<'bump' | 'pillar' | 'gate' | 'balloon', number> {
+    const counts = { bump: 0, pillar: 0, gate: 0, balloon: 0 };
+    for (const o of this.sim?.obstacles ?? []) counts[o.kind]++;
+    return counts;
   }
 
   trackWidth(): number {
@@ -188,6 +199,7 @@ export class App implements TTHost {
     if (sim) {
       this.input.update(dt);
       const { alpha } = this.loop.advance(dt);
+      this.view?.update(dt);
       sim.ball.applyRender(alpha);
       if (sim.respawnCount !== this.lastRespawnCount) {
         this.lastRespawnCount = sim.respawnCount;
@@ -205,6 +217,7 @@ export class App implements TTHost {
     const sim = this.sim;
     if (!sim) return;
     sim.step(this.input.controls);
+    sim.drainEvents(); // Phase 5 will play these; until then they are simply dropped
     this.syncState();
   }
 
@@ -227,8 +240,8 @@ export class App implements TTHost {
 
   private disposeLevel(): void {
     this.levelGroup.clear();
-    for (const m of this.materials) m.dispose();
-    this.materials.length = 0;
+    this.view?.dispose();
+    this.view = null;
     this.sim?.dispose();
     this.sim = null;
   }
@@ -238,8 +251,7 @@ export class App implements TTHost {
     const h = Math.max(1, window.innerHeight);
     this.renderer.setSize(w, h, false);
     this.followCam.setAspect(w / h);
-    this.input.setViewport(w, h);
-    this.input.release();
+    // The viewport and the pointer release on resize are owned by `Input.attach`.
   }
 
   private trackFps(nowMs: number): void {
